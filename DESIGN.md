@@ -494,6 +494,45 @@ components:
     textColor: "{colors.ink}"
     rounded: "{rounded.circle}"
     size: "16px"
+  sm-line:
+    backgroundColor: "{colors.panel}"
+    rounded: "{rounded.md}"
+    padding: "30px 24px 22px"
+  sm-stop:
+    textColor: "{colors.ink}"
+    typography: "{typography.label}"
+    width: "200px"
+  sm-glyph:
+    backgroundColor: "{colors.panel}"
+    rounded: "{rounded.circle}"
+    size: "14px"
+  sm-glyph-head:
+    backgroundColor: "{colors.ink}"
+    rounded: "{rounded.circle}"
+    size: "14px"
+  sm-glyph-tip:
+    backgroundColor: "{colors.panel}"
+    rounded: "{rounded.none}"
+    size: "11px"
+  sm-ring:
+    backgroundColor: "transparent"
+    rounded: "{rounded.circle}"
+    size: "11px"
+  sm-ring-ok:
+    backgroundColor: "{colors.add}"
+    rounded: "{rounded.circle}"
+    size: "11px"
+  sm-ring-bad:
+    backgroundColor: "{colors.delete}"
+    rounded: "{rounded.circle}"
+    size: "11px"
+  sm-note:
+    textColor: "{colors.ink}"
+    typography: "{typography.body}"
+    padding: "10px 14px"
+  ctx-hint:
+    textColor: "{colors.faint}"
+    typography: "{typography.meta}"
 ---
 
 # Design System: Gitnetix
@@ -511,6 +550,8 @@ Rules:
 - The Theme Rule. Black & White is the default and what System follows; every other theme (Gitnetix Dark/Light in `app.css`, the 34 third-party themes through `tokens()` in `src/lib/themes.ts`) keeps its own ground, panel, text and accent, gets the derived steps (`--line2`, `-...
 - The One Loud Voice Rule. Antonio is used only for screen and page titles, the welcome heading, the next release and headline numerals.
 - The Hairline Rule. Every map line is a hairline.
+- The Mono Rule. Mono is for what a machine hands back: paths, SHAs, refs, URLs and code, plus the Count role's tabular numbers and key caps; plain words (menu hints, captions) are Inter.
+- The Station Action Rule. On a station line each action sits under the stop it moves the subject to, and exactly one white primary goes on the stop that fixes the state.
 Don't:
 - Don't use gradient text, glows, coloured halos or drop-shadow filters, except the rainbow on agent work and called skills under the Agent Working Rule.
 - Don't use the working hues for anything but an agent working; a waiting agent is Warn.
@@ -522,9 +563,10 @@ Don't:
 - Don't draw thick transit lines or a coloured route on the branch map; the red route of the trunk reference is not adopted.
 - Don't put commits inside a branch box or wrap them in a card on the map.
 - Don't put ahead/behind inside the box, or a separate rebase button under the commits.
+- Don't put a coloured side bar on a box, note or callout; a note is a hairline row with a leading icon.
 Do:
 - Do use ink for selection and focus in every theme, and `--accent` only for controls (white in Black & White).
-- (+11 more)
+- (+13 more)
 Map: src/lib/themes.ts
 Map: .impeccable/mocks/slate-direction.html
 Full: .impeccable/design-full.md (read a section when you need its detail)

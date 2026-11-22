@@ -77,12 +77,15 @@ async fn submodule_manager() {
     let s = call(&k, "submodules.list", json!({ "projectId": pid })).await[0].clone();
     assert_eq!(s["staged"], false);
     assert_eq!(s["upstreamBehind"], 1);
+    assert!(s["fetchedAt"].is_string(), "fetch time read from FETCH_HEAD: {s}");
 
     call(&k, "submodules.update", json!({ "projectId": pid, "path": "ui-kit", "remote": true })).await;
     let s = call(&k, "submodules.list", json!({ "projectId": pid })).await[0].clone();
     assert_eq!(s["state"], "moved");
     assert_eq!(s["ahead"], 1);
     assert_eq!(s["upstreamBehind"], 0);
+    // The pin still lacks the new commit the checkout moved onto.
+    assert_eq!(s["pinUpstreamBehind"], 1);
 
     // Pin it: clean again, the new pointer staged.
     call(&k, "submodules.stage", json!({ "projectId": pid, "path": "ui-kit" })).await;

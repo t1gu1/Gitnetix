@@ -3679,6 +3679,7 @@ button.map-line-chip[aria-disabled] {
   color: var(--muted);
 }
 /* A long hint (e.g. a stash message) clips at half the row: the label keeps its room and the row stays in its column. */
+/* A menu item's hint: plain words in the body face; a SHA in one wraps itself in .mono. */
 .ctx-hint {
   min-width: 0;
   max-width: 50%;
@@ -3686,8 +3687,7 @@ button.map-line-chip[aria-disabled] {
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--faint);
-  font-family: var(--mono);
-  font-size: 11px;
+  font-size: 12px;
   white-space: nowrap;
 }
 .ctx-head {
@@ -6944,6 +6944,606 @@ main.detail.tk-detail {
 .thread-file > .btn {
   margin-block: -4px;
   font-family: var(--sans);
+}
+
+/* ---------- submodules ---------- */
+/* The list: two lines a submodule, its status ring, path and status, then the last commit's subject and the commit. */
+.sm-checked {
+  font-size: 12px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.sm-list {
+  flex: 1 1 auto;
+  padding-bottom: 12px;
+}
+.sm-row {
+  display: grid;
+  grid-template-columns: 11px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 12px;
+}
+.sm-row-path {
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.sm-row-state {
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--muted);
+}
+.sm-row-state[data-tone="new"] {
+  color: var(--fg);
+}
+.sm-row-state[data-tone="warn"] {
+  color: var(--warn-fg);
+}
+.sm-row-state[data-tone="bad"] {
+  color: var(--del-fg);
+}
+.sm-row-state[data-tone="ok"] {
+  color: var(--add-fg);
+}
+.sm-row-meta {
+  grid-column: 2 / 4;
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--faint);
+  white-space: nowrap;
+}
+.sm-row-meta > :first-child {
+  flex: 1 1 auto;
+}
+.sm-row-meta > .mono {
+  font-size: 11.5px;
+}
+/* The status as a ring: green and full once up to date, ink with a dot for something new to take, amber for a drift,
+   red and full when broken, dashed while not cloned. */
+.sm-ring {
+  flex: none;
+  width: 11px;
+  height: 11px;
+  border: 1.5px solid var(--muted);
+  border-radius: 50%;
+}
+.sm-ring[data-tone="ok"] {
+  border-color: var(--add-fg);
+  background: var(--add-fg);
+}
+.sm-ring[data-tone="new"] {
+  border-color: var(--fg);
+  background: radial-gradient(circle, var(--fg) 0 2px, transparent 2.5px);
+}
+.sm-ring[data-tone="warn"] {
+  border-color: var(--warn-fg);
+}
+.sm-ring[data-tone="bad"] {
+  border-color: var(--del-fg);
+  background: var(--del-fg);
+}
+.sm-ring[data-tone="off"] {
+  border-style: dashed;
+  border-color: var(--faint);
+}
+.sm-skel {
+  display: grid;
+  grid-template-columns: 11px 1fr 56px;
+  align-items: center;
+  gap: 10px 12px;
+  padding: 12px 20px;
+}
+.sm-skel > i {
+  height: 9px;
+  border-radius: var(--r-sm);
+  background: var(--raised);
+}
+.sm-skel > i:first-child {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: none;
+  box-shadow: inset 0 0 0 1px var(--line2);
+}
+.sm-none {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 20px 18px;
+}
+.sm-clear {
+  align-items: center;
+  padding-top: 64px;
+  text-align: center;
+}
+.sm-clear p {
+  max-width: 300px;
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+/* A remote check that could not reach some remotes keeps the list and says whose counts are old. */
+.sm-stale {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  margin: 10px 10px 0;
+  color: var(--fg);
+  white-space: normal;
+}
+.sm-stale > span {
+  flex: 1 1 auto;
+}
+.sm-stale strong {
+  font-weight: 600;
+}
+.sm-stale .mono {
+  font-size: 12px;
+}
+.sm-stale > .btn {
+  flex: none;
+}
+/* Update all under the rows: only the narrow layout, whose toolbar has no room for it. */
+.sm-foot {
+  display: none;
+}
+/* The detail: path and status, the pin line, then details beside the last commit, then the last command's output. */
+.sm-detail {
+  max-width: 1180px;
+  gap: 28px;
+  container: sm-detail / inline-size;
+}
+.sm-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+.sm-title {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.detail .sm-title > h1 {
+  font: 600 22px/28px var(--mono);
+  letter-spacing: -0.01em;
+  overflow-wrap: anywhere;
+}
+.sm-sub {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  margin-top: 8px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.sm-sub .mono {
+  font-size: 12px;
+}
+.tag[data-tone="ok"] {
+  border-color: color-mix(in srgb, var(--add-fg) 45%, var(--line2));
+  color: var(--add-fg);
+}
+.tag[data-tone="new"] {
+  border-color: var(--fg);
+  color: var(--fg);
+}
+.tag[data-tone="warn"] {
+  border-color: color-mix(in srgb, var(--warn-fg) 50%, var(--line2));
+  color: var(--warn-fg);
+}
+.tag[data-tone="bad"] {
+  border-color: color-mix(in srgb, var(--del-fg) 50%, var(--line2));
+  color: var(--del-fg);
+}
+.tag[data-tone="off"] {
+  border-style: dashed;
+}
+.sm-acts {
+  display: flex;
+  flex: none;
+  gap: 6px;
+}
+.sm-sec {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+}
+.sm-sec-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  font-size: 12px;
+  color: var(--faint);
+}
+.sm-sec-head > .label {
+  flex: none;
+  color: var(--muted);
+}
+/* The pin line: stops for the pinned, checked-out and remote commits on one hairline, merged where they are the same
+   commit, each with its action under it. Amber while off the pin, dashed toward new commits on the remote. */
+.sm-line {
+  display: flex;
+  justify-content: center;
+  margin: 0;
+  padding: 30px 24px 22px;
+  list-style: none;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+}
+.sm-stop {
+  position: relative;
+  z-index: 1;
+  flex: 0 0 200px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.sm-stop > .label {
+  color: var(--fg);
+}
+.sm-stop > .label.c-del {
+  color: var(--del-fg);
+}
+.sm-stop > .btn {
+  margin-top: 8px;
+}
+.sm-sha {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--fg);
+}
+.sm-cap {
+  max-width: 200px;
+  font-size: 12px;
+  line-height: 17px;
+  color: var(--muted);
+  text-wrap: pretty;
+}
+.sm-glyph {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin-bottom: 10px;
+  border: 1.5px solid var(--fg);
+  border-radius: 50%;
+  background: var(--panel);
+}
+.sm-glyph[data-glyph="head"] {
+  background: var(--fg);
+}
+.sm-glyph[data-glyph="both"] {
+  background: radial-gradient(circle, var(--fg) 0 2.5px, var(--panel) 3px);
+}
+.sm-glyph[data-glyph="tip"] {
+  width: 11px;
+  height: 11px;
+  margin: 1.5px 0 11.5px;
+  border-color: var(--muted);
+  border-radius: 0;
+  transform: rotate(45deg);
+}
+.sm-glyph[data-glyph="ghost"] {
+  border-style: dashed;
+  border-color: var(--faint);
+}
+.sm-glyph[data-bad] {
+  border-color: var(--del-fg);
+}
+.sm-glyph[data-glyph="both"][data-bad] {
+  background: radial-gradient(circle, var(--del-fg) 0 2.5px, var(--panel) 3px);
+}
+.sm-link {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 56px;
+}
+/* From the centre of the stop before to the centre of the stop after: half a stop past each end. */
+.sm-rule {
+  position: absolute;
+  top: 6.5px;
+  left: -100px;
+  right: -100px;
+  border-top: 1px solid var(--line2);
+}
+.sm-rule > i {
+  position: absolute;
+  top: -4px;
+  width: 1px;
+  height: 7px;
+  background: var(--line2);
+}
+.sm-link[data-kind="warn"] > .sm-rule {
+  border-color: var(--warn-fg);
+}
+.sm-link[data-kind="warn"] > .sm-rule > i {
+  background: var(--warn-fg);
+}
+.sm-link[data-kind="dash"] > .sm-rule {
+  border-top-style: dashed;
+  border-color: var(--muted);
+}
+.sm-link[data-kind="dash"] > .sm-rule > i {
+  background: var(--muted);
+}
+.sm-link[data-kind="off"] > .sm-rule {
+  border-top-style: dashed;
+}
+.sm-link > em {
+  position: absolute;
+  top: -20px;
+  left: -100px;
+  right: -100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 500;
+  font-style: normal;
+  color: var(--muted);
+}
+.sm-link[data-kind="warn"] > em {
+  color: var(--warn-fg);
+}
+.sm-link > em > .mono {
+  font-size: 11.5px;
+}
+.sm-notes {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+}
+.sm-note {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.sm-note + .sm-note {
+  border-top: 1px solid var(--line);
+}
+.sm-note > span {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.sm-note .mono {
+  font-size: 12px;
+}
+.sm-note > svg,
+.sm-note > .btn {
+  flex: none;
+}
+.sm-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr);
+  gap: 28px;
+}
+.sm-kv {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  margin: 0;
+  border-top: 1px solid var(--line);
+}
+.sm-kv > * {
+  min-width: 0;
+  margin: 0;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  line-height: 20px;
+}
+.sm-kv > dt {
+  color: var(--muted);
+}
+.sm-kv > dd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.sm-kv .mono {
+  font-size: 12px;
+}
+.sm-kv a {
+  text-decoration: underline;
+  text-decoration-color: var(--line2);
+  text-underline-offset: 3px;
+  color: var(--fg);
+}
+.sm-kv .btn-icon {
+  margin-block: -4px;
+}
+.sm-last {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 9px;
+  border-top: 1px solid var(--line);
+}
+.sm-last > strong {
+  font-size: 14px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.sm-by {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+/* Add a submodule: where it lands, before it clones. */
+.sm-lands {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.sm-lands .mono {
+  font-size: 12px;
+  color: var(--fg);
+}
+.sm-lands > .sm-glyph {
+  width: 12px;
+  height: 12px;
+  margin: 3px 0 0;
+}
+.sm-pre {
+  max-height: 280px;
+  overflow: auto;
+  font-size: 12px;
+}
+/* No submodules yet: the line a submodule is read on, over the usual empty state. */
+.sm-mini {
+  display: flex;
+  gap: 28px;
+  margin-bottom: 14px;
+  position: relative;
+}
+.sm-mini::before {
+  content: "";
+  position: absolute;
+  top: 6.5px;
+  left: 54px;
+  right: 54px;
+  border-top: 1px dashed var(--line2);
+}
+.sm-mini > span {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 108px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--faint);
+}
+.sm-mini .sm-glyph {
+  border-color: var(--line2);
+  background: var(--bg);
+}
+.sm-mini .sm-glyph[data-glyph="head"] {
+  background: var(--line2);
+}
+/* A narrow pane: details under the last commit, and the pin line top to bottom, each action at the right of its stop. */
+@container sm-detail (max-width: 760px) {
+  .sm-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+@container sm-detail (max-width: 620px) {
+  .sm-line {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 16px 14px 4px;
+  }
+  .sm-stop {
+    flex: none;
+    display: grid;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    grid-template-areas: "g label act" "g sha act" "g cap act";
+    justify-items: start;
+    align-items: start;
+    column-gap: 12px;
+    row-gap: 3px;
+    padding-bottom: 14px;
+    text-align: left;
+  }
+  .sm-glyph {
+    grid-area: g;
+    margin: 0 0 0 4px;
+  }
+  .sm-glyph[data-glyph="tip"] {
+    margin: 1.5px 0 0 5.5px;
+  }
+  .sm-stop > .label {
+    grid-area: label;
+  }
+  .sm-sha {
+    grid-area: sha;
+  }
+  .sm-cap {
+    grid-area: cap;
+    max-width: none;
+  }
+  .sm-stop > .btn {
+    grid-area: act;
+    margin-top: 0;
+  }
+  /* From this stop's glyph down to the next link, in that link's style. */
+  .sm-stop[data-next]::after {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    left: 10.5px;
+    top: 14px;
+    bottom: 0;
+    border-left: 1px solid var(--line2);
+  }
+  .sm-stop[data-next="warn"]::after {
+    border-color: var(--warn-fg);
+  }
+  .sm-stop[data-next="dash"]::after {
+    border-left-style: dashed;
+    border-color: var(--muted);
+  }
+  .sm-stop[data-next="off"]::after {
+    border-left-style: dashed;
+  }
+  .sm-link {
+    flex: none;
+    min-width: 0;
+    padding: 0 0 12px 34px;
+  }
+  .sm-rule {
+    top: 0;
+    bottom: 0;
+    left: 10.5px;
+    right: auto;
+    border-top: 0;
+    border-left: 1px solid var(--line2);
+  }
+  .sm-rule > i {
+    display: none;
+  }
+  .sm-link[data-kind="warn"] > .sm-rule {
+    border-color: var(--warn-fg);
+  }
+  .sm-link[data-kind="dash"] > .sm-rule {
+    border-left-style: dashed;
+    border-color: var(--muted);
+  }
+  .sm-link[data-kind="off"] > .sm-rule {
+    border-left-style: dashed;
+  }
+  .sm-link > em {
+    position: static;
+    display: block;
+    text-align: left;
+    white-space: normal;
+  }
 }
 
 /* ---------- pull requests ---------- */
@@ -10407,8 +11007,22 @@ button.app-row:hover > .app-row-chev {
   }
   /* Pull requests and tickets: the detail pane goes without the list's toolbar. */
   .pr-bar[data-detail],
-  .tk-bar[data-detail] {
+  .tk-bar[data-detail],
+  .sm-bar[data-detail] {
     display: none;
+  }
+  /* Submodules: Update all under the rows, as wide as the list. */
+  .sm-foot {
+    display: flex;
+    padding: 10px 12px;
+    border-top: 1px solid var(--line);
+  }
+  .sm-foot > .split-btn {
+    flex: 1 1 auto;
+  }
+  .sm-foot .split-main {
+    flex: 1 1 auto;
+    height: 40px;
   }
   /* The bottom tabs and their "More" menu take over page switching. */
   .tabs-pages {

@@ -75,7 +75,7 @@ export function useCommitMenu({
       { id: "mixed", label: "Reset here · mixed", icon: "back", hint: needLocal ?? "keep unstaged", disabled: !!needLocal, run: () => setReset({ c, mode: "mixed" }) },
       { id: "hard", label: "Reset here · hard", icon: "trash", hint: needCheckout ?? "discard", danger: true, disabled: !!needCheckout, run: () => setReset({ c, mode: "hard" }) },
     ];
-    const copy: MenuItem = { id: "copy", label: "Copy SHA", icon: "edit", hint: short, run: () => copyToClipboard(c.sha) };
+    const copy: MenuItem = { id: "copy", label: "Copy SHA", icon: "edit", hint: <span className="mono">{short}</span>, run: () => copyToClipboard(c.sha) };
     // The base's commit: only there to reset back past the whole branch.
     if (c.base) return [copy, "sep", ...resets];
     const tags: MenuItem[] = [

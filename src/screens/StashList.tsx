@@ -74,7 +74,7 @@ export function StashList({
       { id: "pop", label: <>Pop onto <span className="mono">{onto ?? "…"}</span></>, icon: "unstash", hint: hint ?? "then drop it", disabled: !onto, run: () => run(s, true) },
       { id: "apply", label: <>Apply onto <span className="mono">{onto ?? "…"}</span></>, icon: "unstash", hint: hint ?? "keep it", disabled: !onto, run: () => run(s, false) },
       "sep",
-      { id: "copy", label: "Copy SHA", icon: "edit", hint: s.sha.slice(0, 7), run: () => copyToClipboard(s.sha) },
+      { id: "copy", label: "Copy SHA", icon: "edit", hint: <span className="mono">{s.sha.slice(0, 7)}</span>, run: () => copyToClipboard(s.sha) },
       "sep",
       { id: "drop", label: "Drop stash…", icon: "trash", danger: true, run: () => setDropping(s) },
     ];

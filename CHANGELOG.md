@@ -18,6 +18,17 @@ the in-app update prompt.
 
 - An open ticket's assignee can be changed from its menu in the ticket's header, or set to Unassigned. It works with Jira, Linear, GitHub, Trello and Asana. The menu lists the people the tracker allows: Jira's assignable users, the Linear team's members, the GitHub repository's assignable users, the Trello board's members or the Asana workspace's users. On Trello and GitHub, the picked person becomes the only member or assignee.
 
+### Changed (App)
+
+- The Submodules page draws where each submodule stands as a line: the commit the project pins, the one checked out and the tip of its remote, merged where they are the same commit, with how far apart they are. Each fix sits under the commit it moves the submodule to: Back to pin, Pin this commit, Pull latest, Clone or Go commit. The list groups the submodules into Needs you and Up to date, each with a status ring, and the toolbar holds the filter, Check remotes, Add submodule and Update all. On a phone the line runs top to bottom.
+- The toolbar says when the remotes were last checked. When a check cannot reach some remotes, the list stays and names the submodules whose new commit counts are from the check before, with Try again.
+- Uncommitted files and a local URL that differs from .gitmodules show as notes under the line, the second with Sync URL. Update, Edit, Sync URL, Copy URL and Remove are in the page's ⋯ menu.
+- Hints beside menu items, such as "then pin them" or "nothing to commit", are in the regular font instead of the code font. A commit ID in a hint stays in the code font.
+
+### Changed (Website)
+
+- The demo's Submodules page matches the app's: the list grouped into Needs you and Up to date, the line from the pin through the checked-out commit to the remote with each fix under its commit, the notes under it, and the toolbar with Check remotes, Add submodule and Update all.
+
 ## [0.29.0] - 2026-11-21
 
 ### Added (App)

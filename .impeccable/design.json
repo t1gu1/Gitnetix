@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-11-21T18:00:00Z",
+  "generatedAt": "2026-11-21T20:00:00Z",
   "title": "Design System: Gitnetix",
   "extensions": {
     "colorMeta": {
@@ -746,6 +746,16 @@
         "name": "tickets-small",
         "value": "tk-detail container max-width 520px",
         "purpose": "Ticket title drops to 22px/28px and paddings to 16px."
+      },
+      {
+        "name": "submodules-grid",
+        "value": "sm-detail container max-width 760px",
+        "purpose": "Details and Last commit checked out stack into one column."
+      },
+      {
+        "name": "submodules-line",
+        "value": "sm-detail container max-width 620px",
+        "purpose": "The pin line stands up: stops top to bottom, each button at the right of its stop, the rail vertical."
       }
     ],
     "mapGeometry": {
@@ -922,6 +932,30 @@
       "description": "A ticket's way to a release, down the reader's right margin (400px; 320px under 1000px of pane; under 760px it stacks between the fields and the text): Ticket, Branch, Pull request, Release, Shipped as 11px stations on a Hairline Strong line. Reached stations fill with the route colour and the line between them is 1.5px route, the next station rings in ink, later stations and their line are dashed. The release is the 17px station and its planned version is an Antonio 30px numeral with its tag (One Loud Voice: the next release). Each station holds what can be done there (Start a branch, Go to branch, accept the AI release). Planning rows follow under a hairline: 104px faint terms, 40px rows, 30px menu selects.",
       "html": "<div class=\"ds-wl\"><ol><li data-l=\"on\"><i data-on></i><div><span class=\"lb on\">Ticket</span><span class=\"tx\">Opened by Ana Silva · 3d ago</span></div></li><li data-l=\"on\"><i data-on></i><div><span class=\"lb on\">Branch</span><span class=\"nm\">feat/release-station</span><span class=\"mt\"><span class=\"ds-gd\"></span>An agent is working on it</span></div></li><li data-l=\"later\"><i data-next></i><div><span class=\"lb\">Pull request</span><button class=\"b\">Open pull request</button></div></li><li data-l=\"later\"><i data-later data-big></i><div><span class=\"lb\">Release</span><span class=\"num\">0.29.0<span class=\"tag\">Next</span></span><span class=\"mt mono\">release/0.29.0</span></div></li><li><i data-later></i><div><span class=\"lb\">Shipped</span><span class=\"mt f\">Not yet</span></div></li></ol><dl><div><dt>Release</dt><dd>0.29.0</dd></div><div><dt>Fix versions</dt><dd>0.29.0</dd></div></dl></div>",
       "css": ".ds-wl{width:344px;padding:26px 28px;background:#0a0d12;color:#e9eef4;font:13px/18px Inter,system-ui,sans-serif;border-left:1px solid #1f2732}.ds-wl ol{margin:0 0 22px;padding:0;list-style:none}.ds-wl li{position:relative;display:grid;grid-template-columns:22px minmax(0,1fr);gap:12px;padding-bottom:22px}.ds-wl li:last-child{padding-bottom:0}.ds-wl li:not(:last-child)::before{content:'';position:absolute;left:10.5px;top:16px;bottom:-4px;width:1px;background:#2c3644}.ds-wl li[data-l=on]::before{left:10.25px;width:1.5px;background:#f2f5f8}.ds-wl li[data-l=later]::before{background:none;border-left:1px dashed #2c3644}.ds-wl i{position:relative;z-index:1;display:block;box-sizing:border-box;width:11px;height:11px;margin:1px 0 0 5.5px;border:1px solid #808b9a;border-radius:50%;background:#0a0d12}.ds-wl i[data-on]{border-color:#f2f5f8}.ds-wl i[data-on]::after{content:'';position:absolute;inset:2px;border-radius:50%;background:#f2f5f8}.ds-wl i[data-next]{border-color:#e9eef4}.ds-wl i[data-later]{border-style:dashed}.ds-wl i[data-big]{width:17px;height:17px;margin:-2px 0 0 2.5px;border-width:1.5px}.ds-wl li>div{display:flex;flex-direction:column;align-items:flex-start;gap:5px;min-width:0}.ds-wl .lb{font:600 11px/13px Inter,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#808b9a}.ds-wl .lb.on{color:#e9eef4}.ds-wl .nm{font-weight:500}.ds-wl .mt{display:flex;align-items:center;gap:7px;font-size:12px;line-height:17px;color:#a3aebb}.ds-wl .mono{font-family:'JetBrains Mono',monospace}.ds-wl .f{color:#808b9a}.ds-wl .num{display:flex;align-items:center;gap:10px;font:600 30px/1 Antonio,Inter,sans-serif}.ds-wl .tag{font:600 11px/13px Inter,sans-serif;letter-spacing:.12em;text-transform:uppercase;background:#e9eef4;color:#0a0d12;border-radius:2px;padding:3px 8px}.ds-wl .b{all:unset;cursor:pointer;margin-top:5px;height:30px;padding:0 14px;border-radius:3px;background:#f2f5f8;color:#0a0d12;font:600 11px/30px Inter,sans-serif;letter-spacing:.12em;text-transform:uppercase}.ds-wl .b:hover{background:#d9dfe6}.ds-wl .b:focus-visible{outline:1px solid #e9eef4;outline-offset:2px}.ds-wl dl{margin:0;padding-top:6px;border-top:1px solid #1f2732}.ds-wl dl div{display:grid;grid-template-columns:104px minmax(0,1fr);align-items:center;gap:12px;min-height:40px;border-bottom:1px solid #1f2732}.ds-wl dl div:last-child{border-bottom:0}.ds-wl dt{font-size:12px;color:#808b9a}.ds-wl dd{margin:0;font:12.5px 'JetBrains Mono',monospace}.ds-gd{display:inline-block;width:6px;height:6px;margin-right:7px;vertical-align:1px;border-radius:50%;background:currentColor;animation:ds-p 1.6s steps(2,jump-none) infinite,ds-gs 8s steps(96) infinite}@keyframes ds-gs{0%,100%{color:#f7c48a}25%{color:#c4a7ff}50%{color:#5fd0e0}75%{color:#62d6ae}}@keyframes ds-p{50%{opacity:.25}}@media (prefers-reduced-motion:reduce){.ds-gd{animation:none}}"
+    },
+    {
+      "name": "Pin Line",
+      "kind": "custom",
+      "refersTo": "sm-line",
+      "description": "A submodule's pinned, checked-out and remote-tip commits as stops on one hairline in a panel, merged when two are the same commit. Each 200px stop: a 14px glyph (pinned an ink ring, checked out a filled dot, both a ring with a dot, remote tip an 11px square turned 45deg in Muted, not cloned or no remote a dashed faint ring, Delete when broken), a Label name, the commit in Mono 14px 500, a 12px muted caption, and the action that moves the submodule there; exactly one is the white primary, on the stop that fixes the state. Rails: Warn with a tick per commit for drift off the pin, dashed Muted toward new remote commits, solid Hairline Strong for nothing new, dashed Hairline Strong for no remote. Under 620px of detail it runs top to bottom with each button at the right of its stop.",
+      "html": "<ol class=\"ds-pl\"><li class=\"st\"><span class=\"g\"></span><span class=\"lb\">Pinned</span><span class=\"sha\">3f9a2c1</span><span class=\"cap\">What the project records</span><button class=\"b\">Back to pin</button></li><li class=\"ln w\"><span class=\"r\"><i style=\"left:50%\"></i></span><em>2 ahead of the pin</em></li><li class=\"st\"><span class=\"g hd\"></span><span class=\"lb\">Checked out</span><span class=\"sha\">b71e04d</span><span class=\"cap\">On main · clean</span><button class=\"b p\">Pin this commit</button></li><li class=\"ln d\"><span class=\"r\"><i style=\"left:33%\"></i><i style=\"left:66%\"></i></span><em>3 new on origin/main</em></li><li class=\"st\"><span class=\"g tp\"></span><span class=\"lb\">Remote</span><span class=\"sha\">origin/main</span><span class=\"cap\">3 commits newer than checked out.</span><button class=\"b\">Pull latest</button></li></ol>",
+      "css": ".ds-pl{display:flex;justify-content:center;width:820px;margin:0;padding:30px 24px 22px;list-style:none;border:1px solid #1f2732;border-radius:3px;background:#0f141b;color:#e9eef4;font:13px/18px Inter,system-ui,sans-serif}.ds-pl .st{position:relative;z-index:1;flex:0 0 200px;display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center}.ds-pl .g{width:14px;height:14px;margin-bottom:10px;box-sizing:border-box;border:1.5px solid #e9eef4;border-radius:50%;background:#0f141b}.ds-pl .g.hd{background:#e9eef4}.ds-pl .g.tp{width:11px;height:11px;margin:1.5px 0 11.5px;border-color:#a3aebb;border-radius:0;transform:rotate(45deg)}.ds-pl .lb{font:600 11px/13px Inter,sans-serif;letter-spacing:.14em;text-transform:uppercase}.ds-pl .sha{font:500 14px 'JetBrains Mono',monospace}.ds-pl .cap{max-width:200px;font-size:12px;line-height:17px;color:#a3aebb}.ds-pl .b{all:unset;cursor:pointer;margin-top:8px;height:28px;padding:0 10px;border:1px solid #2c3644;border-radius:3px;font:500 12px/26px Inter,sans-serif;color:#a3aebb;box-sizing:border-box}.ds-pl .b:hover{color:#e9eef4;background:#151b24}.ds-pl .b.p{border-color:#f2f5f8;background:#f2f5f8;color:#0a0d12}.ds-pl .b.p:hover{background:#d9dfe6}.ds-pl .b:focus-visible{outline:1px solid #e9eef4;outline-offset:2px}.ds-pl .ln{position:relative;flex:1 1 0;min-width:56px}.ds-pl .r{position:absolute;top:6.5px;left:-100px;right:-100px;border-top:1px solid #2c3644}.ds-pl .r i{position:absolute;top:-4px;width:1px;height:7px;background:#2c3644}.ds-pl .w .r{border-color:#e8b85a}.ds-pl .w .r i{background:#e8b85a}.ds-pl .d .r{border-top-style:dashed;border-color:#a3aebb}.ds-pl .d .r i{background:#a3aebb}.ds-pl em{position:absolute;top:-20px;left:-100px;right:-100px;text-align:center;white-space:nowrap;font:500 11.5px 'JetBrains Mono',monospace;font-style:normal;color:#a3aebb}.ds-pl .w em{color:#e8b85a}"
+    },
+    {
+      "name": "Submodule Status Ring",
+      "kind": "chip",
+      "refersTo": "sm-ring",
+      "description": "11px status ring with its matching status tag. Up to date fills Add; something new to take is an ink ring with a centre dot; a drift (off its pin, URL out of sync, uncommitted files) is a Warn ring; a conflicted or missing pointer fills Delete; not cloned is a dashed faint ring. Tags take the same tone, the hue mixed about half into a Hairline Strong border, dashed for not cloned. Green means Up to date and nothing else.",
+      "html": "<div class=\"ds-smr\"><span><i data-t=\"ok\"></i><b class=\"tg\" data-t=\"ok\">Up to date</b></span><span><i data-t=\"new\"></i><b class=\"tg\" data-t=\"new\">3 new on remote</b></span><span><i data-t=\"warn\"></i><b class=\"tg\" data-t=\"warn\">Off its pin</b></span><span><i data-t=\"bad\"></i><b class=\"tg\" data-t=\"bad\">Conflict</b></span><span><i data-t=\"off\"></i><b class=\"tg\" data-t=\"off\">Not cloned</b></span></div>",
+      "css": ".ds-smr{display:flex;flex-direction:column;gap:10px;padding:12px;background:#0a0d12}.ds-smr span{display:flex;align-items:center;gap:12px}.ds-smr i{width:11px;height:11px;box-sizing:border-box;border:1.5px solid #a3aebb;border-radius:50%}.ds-smr i[data-t=ok]{border-color:#5fd39a;background:#5fd39a}.ds-smr i[data-t=new]{border-color:#e9eef4;background:radial-gradient(circle,#e9eef4 0 2px,transparent 2.5px)}.ds-smr i[data-t=warn]{border-color:#e8b85a}.ds-smr i[data-t=bad]{border-color:#ff7b72;background:#ff7b72}.ds-smr i[data-t=off]{border-style:dashed;border-color:#808b9a}.ds-smr .tg{padding:3px 8px;border:1px solid #2c3644;border-radius:2px;font:600 11px/13px Inter,sans-serif;letter-spacing:.14em;text-transform:uppercase;color:#a3aebb}.ds-smr .tg[data-t=ok]{border-color:color-mix(in srgb,#5fd39a 45%,#2c3644);color:#5fd39a}.ds-smr .tg[data-t=new]{border-color:#e9eef4;color:#e9eef4}.ds-smr .tg[data-t=warn]{border-color:color-mix(in srgb,#e8b85a 50%,#2c3644);color:#e8b85a}.ds-smr .tg[data-t=bad]{border-color:color-mix(in srgb,#ff7b72 50%,#2c3644);color:#ff7b72}.ds-smr .tg[data-t=off]{border-style:dashed}"
+    },
+    {
+      "name": "Panel Notes",
+      "kind": "card",
+      "refersTo": "sm-note",
+      "description": "Notes under a panel: a 1px-hairline 3px box of hairline-split rows (padding 10px 14px, 13px at 1.45), each a leading 14px Warn icon, the sentence with Mono 12px for URLs and paths, and an optional small action at the right. Never a coloured side bar.",
+      "html": "<div class=\"ds-nt\"><div><svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"#e8b85a\" stroke-width=\"1.25\"><path d=\"M8 2 15 14H1z\"/><path d=\"M8 6.5v3.5M8 12h.01\"/></svg><span>3 uncommitted files inside. Commit or stash them in the submodule before you move it.</span></div><div><svg width=\"14\" height=\"14\" viewBox=\"0 0 16 16\" fill=\"none\" stroke=\"#e8b85a\" stroke-width=\"1.25\"><path d=\"M2 5h10l-3-3M14 11H4l3 3\"/></svg><span>The local clone fetches from <code>git@old.host:lib.git</code>, but .gitmodules says <code>git@new.host:lib.git</code>.</span><button>Sync URL</button></div></div>",
+      "css": ".ds-nt{display:flex;flex-direction:column;width:640px;border:1px solid #1f2732;border-radius:3px;color:#e9eef4;font:13px/1.45 Inter,system-ui,sans-serif;background:#0a0d12}.ds-nt>div{display:flex;align-items:center;gap:12px;padding:10px 14px}.ds-nt>div+div{border-top:1px solid #1f2732}.ds-nt svg{flex:none}.ds-nt span{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}.ds-nt code{font:12px 'JetBrains Mono',monospace}.ds-nt button{all:unset;cursor:pointer;flex:none;height:28px;padding:0 10px;border:1px solid #2c3644;border-radius:3px;font:500 12px/26px Inter,sans-serif;color:#a3aebb;box-sizing:border-box}.ds-nt button:hover{color:#e9eef4;background:#151b24}.ds-nt button:focus-visible{outline:1px solid #e9eef4;outline-offset:2px}"
     }
   ],
   "narrative": {
@@ -932,6 +966,7 @@
       "Branch map as a station line: hairline trunk, ring stations, two-row boxes, ahead/behind chips on the lines, floating commits.",
       "Pull requests read as the same line: ring stations by state in the list, and each pull request's checks, review and conversations as stations on its way to the base.",
       "Tickets read like a page: one-line rows with a status ring, a 1180px reading column, and the ticket's way to a release as a station line in the margin.",
+      "Submodules read as a pin line: the pinned, checked-out and remote-tip commits as stops on one hairline, each action under the stop it moves the submodule to.",
       "White controls: solid white primary, 1px outline secondary.",
       "Hue only for diff add/delete, warnings and conflicts, plus the flowing rainbow on agent work.",
       "Tall condensed numerals and versions; tracked small-caps labels.",
@@ -964,6 +999,11 @@
         "section": "typography"
       },
       {
+        "name": "The Mono Rule",
+        "body": "Mono is for what a machine hands back: paths, SHAs, refs, URLs and code, plus the Count role's tabular numbers and key caps. Plain words are never Mono: menu hints, captions and sentences are Inter, and a hint or sentence that holds a SHA or path wraps only that string in Mono (the menus' Copy SHA hint, the stale-remote box's submodule names).",
+        "section": "typography"
+      },
+      {
         "name": "Flat at Rest",
         "body": "No shadow on resting surfaces; only floating layers get the single float shadow.",
         "section": "elevation"
@@ -971,6 +1011,11 @@
       {
         "name": "The Hairline Rule",
         "body": "Every map line is a hairline. The route from the trunk to the checked-out branch is 1.5px in the route colour (control white, ink in light mode); every other link is a 1px Link Dim curve; a falling-behind branch's link is dashed 3/4. No thick transit lines, no hue on the route, no pulse travelling along it, no glow. A one-line legend box floats at the canvas's bottom left (8px in, 16px up; 1px hairline-strong border, 3px corners, ground at 85%, padding 6px 12px, Inter 12px muted) with the route, other lines, falling behind and the line chip. Keys that don't fit wrap out of sight, never cut in half, and a \"See all\" link lists them in a 360px modal. It stops short of the selected branch's side column.",
+        "section": "components"
+      },
+      {
+        "name": "The Station Action Rule",
+        "body": "On a station line each action sits under the stop it moves the subject to, and exactly one white primary goes on the stop that fixes the state; every other action there is a small outlined button.",
         "section": "components"
       }
     ],
@@ -986,7 +1031,9 @@
       "Do put ahead/behind on the incoming line as a chip, a rebase button when there is a behind count",
       "Do put shipped releases on the trunk as ring stations at an even 36px pitch, main as the large station where the route starts",
       "Do mark everything an agent is working on with the flowing rainbow (the Agent Working Rule), and stop it under reduced motion",
-      "Do dock the agents panel right at 460px in both views"
+      "Do dock the agents panel right at 460px in both views",
+      "Do put each action under the station it moves the subject to, with exactly one white primary on the station that fixes the state",
+      "Do set menu hints, captions and sentences in Inter, and wrap only a SHA, path, ref or URL inside them in Mono"
     ],
     "donts": [
       "Don't use gradient text, glows, coloured halos or drop-shadow filters, except the rainbow on agent work under the Agent Working Rule",
@@ -998,7 +1045,8 @@
       "Don't set functional text below 11px",
       "Don't draw thick transit lines or a coloured route on the branch map; the red route of the trunk reference is not adopted",
       "Don't put commits inside a branch box or wrap them in a card on the map",
-      "Don't put ahead/behind inside the box, or a separate rebase button under the commits"
+      "Don't put ahead/behind inside the box, or a separate rebase button under the commits",
+      "Don't put a coloured side bar on a box, note or callout; a note is a hairline row with a leading icon"
     ]
   }
 }

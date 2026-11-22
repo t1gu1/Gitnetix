@@ -457,6 +457,10 @@ export interface Submodule {
   /** Remote branch compared to, as of the last fetch. */
   upstream?: string | null;
   upstreamBehind: number;
+  /** Commits on `upstream` the pin lacks; counted only off the pin. */
+  pinUpstreamBehind: number;
+  /** When the clone last fetched, so `upstreamBehind` reads "as of" then; null = never. */
+  fetchedAt?: string | null;
 }
 
 export interface StashApplied {

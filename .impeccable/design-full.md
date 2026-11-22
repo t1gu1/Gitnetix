@@ -494,6 +494,45 @@ components:
     textColor: "{colors.ink}"
     rounded: "{rounded.circle}"
     size: "16px"
+  sm-line:
+    backgroundColor: "{colors.panel}"
+    rounded: "{rounded.md}"
+    padding: "30px 24px 22px"
+  sm-stop:
+    textColor: "{colors.ink}"
+    typography: "{typography.label}"
+    width: "200px"
+  sm-glyph:
+    backgroundColor: "{colors.panel}"
+    rounded: "{rounded.circle}"
+    size: "14px"
+  sm-glyph-head:
+    backgroundColor: "{colors.ink}"
+    rounded: "{rounded.circle}"
+    size: "14px"
+  sm-glyph-tip:
+    backgroundColor: "{colors.panel}"
+    rounded: "{rounded.none}"
+    size: "11px"
+  sm-ring:
+    backgroundColor: "transparent"
+    rounded: "{rounded.circle}"
+    size: "11px"
+  sm-ring-ok:
+    backgroundColor: "{colors.add}"
+    rounded: "{rounded.circle}"
+    size: "11px"
+  sm-ring-bad:
+    backgroundColor: "{colors.delete}"
+    rounded: "{rounded.circle}"
+    size: "11px"
+  sm-note:
+    textColor: "{colors.ink}"
+    typography: "{typography.body}"
+    padding: "10px 14px"
+  ctx-hint:
+    textColor: "{colors.faint}"
+    typography: "{typography.meta}"
 ---
 
 # Design System: Gitnetix
@@ -513,6 +552,7 @@ Key characteristics:
 - Branch map as a station line: hairline trunk, ring stations, two-row boxes, ahead/behind chips on the lines, floating commits.
 - Pull requests read as the same line: ring stations by state in the list, and each pull request's checks, review and conversations as stations on its way to the base.
 - Tickets read like a page: one-line rows with a status ring, a 1180px reading column, and the ticket's way to a release as a station line in the margin.
+- Submodules read as a pin line: the pinned, checked-out and remote-tip commits as stops on one hairline, each action under the stop it moves the submodule to.
 - White controls: solid white primary, 1px outline secondary.
 - Hue only for diff add/delete, warnings and conflicts, plus the flowing rainbow on agent work.
 - Tall condensed numerals and versions; tracked small-caps labels.
@@ -532,7 +572,7 @@ Restrained strategy: tinted neutrals plus one control colour that is not a hue.
 - **Ink** (`#e9eef4`), **Muted** (`#a3aebb`), **Faint** (`#808b9a`): text tiers. All pass 4.5:1 on ground and panel. Faint also draws the trunk hairline and the resting station rings.
 
 ### Status (meaning only)
-- **Add** `#5fd39a`, **Delete** `#ff7b72`, **Warn** `#e8b85a`. Diff backgrounds are the same hue at 10% (light 8 to 9%). Behind counts use Delete (the line chip's ↓, the card's Behind numeral, the code view's "vs" pill, and the "↓N to pull" text on a branch box, the focus head and the card's Origin row). Warn marks a branch that needs you: an agent waiting, an idle branch's alert icon.
+- **Add** `#5fd39a`, **Delete** `#ff7b72`, **Warn** `#e8b85a`. Diff backgrounds are the same hue at 10% (light 8 to 9%). Behind counts use Delete (the line chip's ↓, the card's Behind numeral, the code view's "vs" pill, and the "↓N to pull" text on a branch box, the focus head and the card's Origin row). Warn marks a branch that needs you: an agent waiting, an idle branch's alert icon. On Submodules, Add marks Up to date only, Delete a conflicted or missing pointer, and Warn a submodule off its pin, a URL out of sync or uncommitted files inside it.
 
 ### Code
 The Black & White pair highlights code in its two inks: keywords and types bold Ink, strings, numbers, functions, literals and properties Muted. Other themes keep their syntax hues.
@@ -563,11 +603,11 @@ Character: one loud condensed voice for the few numbers and versions that matter
 - **Page Title** (Antonio 600, 24px, line-height 1, 0.05em tracking, uppercase): the title of a full page (Analytics, Tickets, Templates, AI setup). **Hero Title** (Antonio 600, 32px, 0.04em, uppercase): the welcome screen's heading.
 - **Display Numeral** (Antonio 600, 44px, line-height 1): headline counts with a Label caption under them (Ahead / Behind / WIP files on the selected card; KPI values in Analytics, Sprints, Weekly).
 - **Body** (Inter 13px/18px, 400; 500 for tabs and segments): all UI text.
-- **Meta** (Inter 12px/16px): secondary lines on cards and rows, floating commit subjects, release dates on the trunk.
+- **Meta** (Inter 12px/16px): secondary lines on cards and rows, floating commit subjects, release dates on the trunk, context-menu hints (faint).
 - **Label** (Inter 600, 11px, 0.14em tracking, uppercase): column headings (TRUNK, BRANCHES), branch type (FEAT), status tags (CHECKED OUT, MERGED, DEFAULT, NEXT), stat labels, the code view's rail sections (STAGED, UNSTAGED, COMMIT MESSAGE; 0.12em there).
 - **Button** (Inter 600, 11px, 0.12em tracking, uppercase): regular buttons.
 - **Button Small** (Inter 500, 12px/18px, no tracking, sentence case): small toolbar buttons and toggles (Fit, Show all).
-- **Ref** (JetBrains Mono 13px, 500; 600 for the current branch and `main`): branch names, refs, shipped versions on the trunk, file paths. Code view crumbs are Mono 13px.
+- **Ref** (JetBrains Mono 13px, 500; 600 for the current branch and `main`): branch names, refs, shipped versions on the trunk, file paths. Code view crumbs are Mono 13px. A submodule's path heads its detail in Mono 600 22px/28px at -0.01em, wrapping anywhere.
 - **Count** (JetBrains Mono 11px, 500): counts after tab and segment labels, the ahead/behind line chip, the Esc key cap. Commit ages use the same face at 400, faint, beside the author's avatar.
 - **Field** (Inter 12.5px/18px): text inputs and the file rows of the code view's rail (file name 500 ink, its folder 11.5px faint).
 - **Code** (JetBrains Mono 12px/20px): diffs, logs, terminal.
@@ -578,6 +618,8 @@ All numbers use `font-variant-numeric: tabular-nums`. Nothing functional is set 
 
 ### Named Rules
 **The One Loud Voice Rule.** Antonio is used only for screen and page titles, the welcome heading, the next release and headline numerals. Shipped versions read in Mono. Never Antonio for body, buttons, labels or branch names.
+
+**The Mono Rule.** Mono is for what a machine hands back: paths, SHAs, refs, URLs and code, plus the Count role's tabular numbers and key caps. Plain words are never Mono: menu hints, captions and sentences are Inter, and a hint or sentence that holds a SHA or path wraps only that string in Mono (the menus' Copy SHA hint, the stale-remote box's submodule names).
 
 ## Layout
 
@@ -591,7 +633,7 @@ Focus: `outline: 1px solid` ink, `outline-offset: 2px`. No blurred focus halo. T
 
 ## Shapes
 
-Corners are 3px on controls, boxes, cards and inputs, 2px on status tags, check boxes, the "+" square, the line chip and the key cap, 0 on shell bars and tabs. Circles only for avatars, status dots, trunk stations and the timeline commit marks. No pills: anything that was `border-radius: 999px` becomes 3px unless it is a dot. A dashed border or line means falling behind, idle or uncommitted (falling-behind box, its link and its line chip; the 6px WIP dot).
+Corners are 3px on controls, boxes, cards and inputs, 2px on status tags, check boxes, the "+" square, the line chip and the key cap, 0 on shell bars and tabs. Circles only for avatars, status dots, trunk stations and the timeline commit marks. No pills: anything that was `border-radius: 999px` becomes 3px unless it is a dot. A dashed border or line means falling behind, idle, uncommitted, not there yet or not there at all (falling-behind box, its link and its line chip; the 6px WIP dot; a not-cloned submodule's ring, its Not cloned tag, the pin line's rail toward new remote commits and its rail when there is no remote). One square silhouette joins the circles: a submodule's remote tip is an 11px square turned 45deg, so the commit you don't have yet reads apart from the ones you do.
 
 ## Components
 
@@ -665,6 +707,23 @@ A ticket reads like a page, and its way to a release is drawn as a station line 
 - **Planning rows:** under the work line, a hairline above them: Release, Fix versions (Jira), Parent, Project, Time left and Tracker as 40px rows split by hairlines, the term 104px in 12px faint, the value 12.5px or a full-width 30px menu select.
 - **Narrow panes:** under 760px of detail pane the reader stacks and scrolls as one: the title and fields (padding 28px 24px 22px), the work line between hairlines, then the text. Under 520px the title drops to 22px/28px and paddings to 16px.
 
+### Submodules screen
+A submodule is three commits on one line, pinned, checked out and remote tip, and every action sits on the stop it moves the submodule to.
+- **Toolbar:** the map's 48px toolbar. "SUBMODULES" in Display Title, the project and count, an All / Needs you segment, when remotes were last checked in 12px faint, a check-remotes icon button, Add submodule, and Update all as a primary split. On a phone the detail pane goes without the toolbar and Update all moves under the rows as a full-width 40px split, a hairline above it.
+- **List rows:** two lines a submodule under Needs you / Up to date group heads: an 11px status ring, the path in 12.5px 500 ink and the status word at the right in 12px (muted; ink for something new, Warn, Delete or Add with its ring), then the last commit's subject in 12px faint with the commit in Mono 11.5px. While it updates a spinner stands in for the ring and the word reads "Updating". Loading reads ".gitmodules" with a spinner over skeleton rows: a ring drawn in Hairline Strong and 9px Raised bars.
+- **Status rings:** 11px, 1.5px stroke. Up to date fills Add; something new to take (new on the remote, a new pin staged) is an ink ring with a 2px ink centre dot; a drift (off its pin, URL out of sync, uncommitted files) is a Warn ring; a conflicted or missing pointer fills Delete; not cloned is a dashed faint ring. Green means Up to date and nothing else.
+- **Status tags:** the same tones on the status tag: Add, Warn and Delete text with their hue mixed about half into a Hairline Strong border (Add 45%, the others 50%), an ink border and text for something new, a dashed border for not cloned.
+- **Detail:** up to 1180px, 28px gaps. The Mono path title with its status tag and a 12.5px muted sub-line (Mono values 12px), its actions top right; the pin line; notes; then Details (a 120px-term key-value list between hairlines, 13px/20px, muted terms, Mono values 12px, links underlined in Hairline Strong) beside Last commit checked out (a 14px 500 subject over a 12px muted author line), 1.15 to 1 columns 28px apart; then the last command's output in a 280px-tall scrolling pre. Under 760px of detail the two columns stack.
+- **Pin line:** a panel (1px hairline, 3px corners, padding 30px 24px 22px) holding the stops on one hairline, centred. Each stop is 200px wide and centred: a 14px glyph, its Label name in ink (Delete when the stop is broken), the commit in Mono 14px 500 (faint "none" or "no pin" when there is none), a 12px/17px muted caption, and its action 8px under it. Glyphs: pinned is an ink ring on panel; checked out a filled ink dot; pinned and checked out together (the stops merge when they are the same commit) a ring with a 2.5px centre dot; the remote tip the turned square in Muted; not cloned or no remote a dashed faint ring; a broken stop rings in Delete. The rail runs from the centre of one stop to the centre of the next, 1px, its count centred above it in Inter 12px 500 muted (plain words, so not Mono; the remote ref inside it in Mono 11.5px): Warn with a tick per commit (up to nine) while the checkout drifts off the pin ("2 ahead of the pin"); dashed Muted with ticks toward new commits on the remote ("3 new on origin/main"); solid Hairline Strong when there is nothing new; dashed Hairline Strong when there is no remote. A checkout only behind its pin comes first on the line.
+- **Stop actions:** small buttons under their stops (Back to pin under Pinned, Pin this commit under Checked out, Pull latest under Remote, Clone on a not-cloned pin, Go commit on a staged pin, Remove entry in Delete on a missing pointer). Exactly one is the white primary: the one on the stop that fixes the state.
+
+**The Station Action Rule.** On a station line each action sits under the stop it moves the subject to, and exactly one white primary goes on the stop that fixes the state; every other action there is a small outlined button.
+
+- **Narrow pin line:** under 620px of detail the line stands up: stops run top to bottom in a 22px glyph column, the label, commit and caption beside it left-aligned, each button at the right of its stop; the rail is vertical at 10.5px, its count left-aligned under the stop, and each stop's segment down to the next rail takes that rail's style.
+- **Notes:** under the pin line, a 1px-hairline 3px box of hairline-split rows (padding 10px 14px, 13px at 1.45, 12px gaps): a leading 14px Warn icon, the sentence (Mono 12px for URLs and paths), and an optional small action at the right (Sync URL), white only when the pin line above has no white button of its own. Never a coloured side bar.
+- **Stale remotes:** when a remote check can't reach some remotes, the list stays and an error box over it (Delete border and wash, text in ink, 12px gaps, 10px from the pane edges) says "Could not reach N remotes.", names those submodules in Mono 12px and says their new counts are from the check before, with Try again as a small button inside the box on the right. A list that can't be read at all uses the same box with the reason and Try again.
+- **Empty and add:** no submodules shows a mini pin line (Pinned, Checked out, Remote in Label type, faint, glyphs drawn in Hairline Strong on a dashed rail) over the usual empty state with Add submodule as the primary. The add modal says where the submodule lands before it clones, in a 1px-hairline box with a 12px pin glyph, Mono 12px ink paths in 12.5px muted text. Its footers follow the app's full-width modal footer and uppercase button.
+
 ### Focus head (code view)
 A 48px bar above the code view. Left: a "Branch map" back control (check-toggle shape with a back icon) carrying an Esc key cap (Count type, faint, 1px hairline-strong border, 2px corners, padding 0 5px). Then crumbs in Mono 13px muted with faint › separators, the current one ink 500, followed by the CHECKED OUT tag. Pushed right, status pills in Mono 12px muted, 18px apart: "↑4 ↓2 vs v0.6.0" (↓ in Delete), the agent state with its dot (rainbow while working), "↑1 to push".
 
@@ -693,6 +752,9 @@ The app's right agents/terminal panel, docked below the toolbar in both views, 4
 - **Log:** padding 16px, 14px gaps, Inter 13px muted for the assistant. The user's message is plain ink text beside their 22px profile avatar (10px gap), with no rule or bubble; one sent while the agent works stays muted until it goes out. A meta line (Inter 11.5px faint) appears under a message on hover, 32px in, past the avatar. Tool rows are Mono 12px faint with a 12px file icon and Add/Delete counts. Code names inline in Mono 12px ink. Thinking is three 6px muted dots that hop 3px in four steps (1.333s, staggered), off under reduced motion.
 - **Input box:** 0 16px 16px from the panel edges, 1px hairline-strong border, 3px corners, panel fill, 12px padding and gaps; the border turns ink on focus-within. Text on top: a borderless 13px textarea (faint placeholder), growing to three lines. Under it one row: attach and dictation icon buttons, the compact model picker (28px, 1px hairline-strong outline, 3px corners, Inter 12px), a spacer, then a labelled action button. While the agent works and the box is empty it is Stop: secondary shape, Delete-coloured text. Typing swaps it to the primary Queue (agent working) or Send, each with its icon and word.
 
+### Context menus
+A menu item's hint sits at the right end of its row, 12px from the label, in Inter 12px faint (Meta type), clipped with an ellipsis at half the row so the label keeps its room. Plain words stay in Inter; a hint holding a SHA wraps the SHA in Mono (Copy SHA in the commit and stash menus). The Mono Rule.
+
 ### Deliberate omissions from the mock
 Not built, by choice, and not components: counts on the section tabs, "fetched Xm ago" by the fetch control, the 44px icon rail beside the diff, and the agent's duration on map boxes.
 
@@ -711,6 +773,8 @@ Not built, by choice, and not components: counts on the section tabs, "fetched X
 - **Do** put shipped releases on the trunk as ring stations at an even 36px pitch, `main` as the large station where the route starts.
 - **Do** mark everything an agent is working on with the flowing rainbow (the Agent Working Rule), and stop it under reduced motion.
 - **Do** dock the agents panel right at 460px in both views.
+- **Do** put each action under the station it moves the subject to, with exactly one white primary on the station that fixes the state.
+- **Do** set menu hints, captions and sentences in Inter, and wrap only a SHA, path, ref or URL inside them in Mono.
 
 ### Don't:
 - **Don't** use gradient text, glows, coloured halos or drop-shadow filters, except the rainbow on agent work under the Agent Working Rule.
@@ -723,3 +787,4 @@ Not built, by choice, and not components: counts on the section tabs, "fetched X
 - **Don't** draw thick transit lines or a coloured route on the branch map; the red route of the trunk reference is not adopted.
 - **Don't** put commits inside a branch box or wrap them in a card on the map.
 - **Don't** put ahead/behind inside the box, or a separate rebase button under the commits.
+- **Don't** put a coloured side bar on a box, note or callout; a note is a hairline row with a leading icon.

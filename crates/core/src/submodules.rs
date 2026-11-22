@@ -63,6 +63,10 @@ pub struct Submodule {
     pub upstream: Option<String>,
     /// Commits on `upstream` not checked out yet.
     pub upstream_behind: u32,
+    /// Commits on `upstream` the pin lacks. Counted only off the pin, where it differs from `upstream_behind`.
+    pub pin_upstream_behind: u32,
+    /// When the clone last fetched (its `FETCH_HEAD`), so `upstream_behind` reads "as of" then; None = never.
+    pub fetched_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -252,6 +256,8 @@ pub async fn list(git: &Git) -> Result<Vec<Submodule>> {
                 behind: 0,
                 upstream: None,
                 upstream_behind: 0,
+                pin_upstream_behind: 0,
+                fetched_at: None,
                 path,
             };
             if link.is_none() {
@@ -265,12 +271,29 @@ pub async fn list(git: &Git) -> Result<Vec<Submodule>> {
                 }
                 return s;
             }
+            s.fetched_at = fetched_at(&dir);
             inspect(&mut s, &Git::new(&dir)).await;
             s
         })
         .buffered(6)
         .collect()
         .await)
+}
+
+/// Time of the clone's last successful fetch, from its `FETCH_HEAD`. Read from disk, no git call: the folder's `.git` is a file
+/// naming the clone's real directory (`.git/modules/<name>`) once absorbed, or that directory itself.
+fn fetched_at(dir: &Path) -> Option<String> {
+    let dot = dir.join(".git");
+    let git_dir = match std::fs::read_to_string(&dot) {
+        Ok(f) => dir.join(f.strip_prefix("gitdir:")?.trim()),
+        Err(_) => dot,
+    };
+    let meta = std::fs::metadata(git_dir.join("FETCH_HEAD")).ok()?;
+    // A fetch that could not reach the remote still empties the file and touches it: no time then.
+    if meta.len() == 0 {
+        return None;
+    }
+    Some(chrono::DateTime::<chrono::Local>::from(meta.modified().ok()?).to_rfc3339())
 }
 
 /// Fill in what is checked out in an initialized submodule.
@@ -311,6 +334,9 @@ async fn inspect(s: &mut Submodule, sub: &Git) {
     let upstream = format!("origin/{branch}");
     if sub.ref_exists(&format!("refs/remotes/{upstream}")).await.unwrap_or(false) {
         s.upstream_behind = count(sub, &format!("{head}...{upstream}")).await.map_or(0, |(_, r)| r);
+        if let Some(rec) = s.recorded.as_ref().filter(|r| **r != head) {
+            s.pin_upstream_behind = count(sub, &format!("{rec}...{upstream}")).await.map_or(0, |(_, r)| r);
+        }
         s.upstream = Some(upstream);
     }
 }
@@ -473,6 +499,26 @@ mod tests {
         assert!(same_url("https://h/acme/ui-kit", "https://h/acme/ui-kit.git"));
         assert!(!same_url("/work/old-kit", "../ui-kit"));
         assert!(!same_url("https://h/acme/old", "https://h/acme/new"));
+    }
+
+    #[test]
+    fn fetch_time_from_fetch_head() {
+        let tmp = tempfile::tempdir().unwrap();
+        // Absorbed: `.git` is a file naming the clone's directory.
+        let (sub, real) = (tmp.path().join("kit"), tmp.path().join("modules/kit"));
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::create_dir_all(&real).unwrap();
+        std::fs::write(sub.join(".git"), "gitdir: ../modules/kit\n").unwrap();
+        assert_eq!(fetched_at(&sub), None, "never fetched");
+        std::fs::write(real.join("FETCH_HEAD"), "").unwrap();
+        assert_eq!(fetched_at(&sub), None, "a failed fetch leaves it empty");
+        std::fs::write(real.join("FETCH_HEAD"), "abc\t\tbranch 'main' of /x\n").unwrap();
+        assert!(fetched_at(&sub).is_some());
+        // Not absorbed: `.git` is the directory itself.
+        let own = tmp.path().join("own");
+        std::fs::create_dir_all(own.join(".git")).unwrap();
+        std::fs::write(own.join(".git/FETCH_HEAD"), "abc\n").unwrap();
+        assert!(fetched_at(&own).is_some());
     }
 
     #[test]
