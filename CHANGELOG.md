@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.33.0] - 2026-11-22
+
 ### Changed (App)
 - Settings subpages now share one layout built from the same sheet components, at the same width as the home screen.
 
