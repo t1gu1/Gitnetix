@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.36.0] - 2026-11-23
+
 ### Added (App)
 - A Hooks settings page where each project sets terminal commands that run when Gitnetix creates, switches, merges or deletes a branch, creates or removes a worktree, or creates or publishes a release. Commands run in the login shell with GITNETIX_* variables. Output goes to the Logs, and the page shows the last run of each moment. A failing worktree removal hook stops the removal unless the hook keeps going.
 
