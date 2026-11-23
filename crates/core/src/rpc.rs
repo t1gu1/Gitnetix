@@ -135,7 +135,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("shell.scripts", "Commands of every project tool in a checkout of the project (package.json scripts, Cargo, Docker Compose, Make, LÖVE…) whose program is installed, each with the command line that runs it from the checkout root", "projectId, path"),
     ("ai.catalog", "AI providers, their status and settings", ""),
     ("ai.skills", "Skills and custom commands the agent CLI (provider, else the one agents use) finds for the project, with what each is typed after (/ or $)", "projectId, provider?"),
-    ("ai.models", "Models an AI provider offers, each with the effort levels it takes (Copilot's, Codex's and Antigravity's are read from their CLI for the signed-in account)", "id"),
+    ("ai.models", "Models an AI provider offers, each with the effort levels it takes (Claude's, Copilot's, Codex's, Antigravity's and Ollama's are read from their CLI)", "id"),
     ("ai.saveProvider", "Configure an AI provider", "id, method?, model?, effort?, baseUrl?, apiKey?"),
     ("ai.setDefault", "Default AI provider, handed every task too (Claude keeps its per-task models; agent permissions stay)", "id"),
     ("ai.test", "Test an AI provider", "id"),

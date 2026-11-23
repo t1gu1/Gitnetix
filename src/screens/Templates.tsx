@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 
-import { useAction, useConfig, useTemplates } from "../api/hooks";
+import { useAction, useAiModels, useConfig, useTemplates } from "../api/hooks";
 import type { Template } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
 import { Icon } from "../components/Icon";
@@ -101,6 +101,7 @@ function TemplateEditor({ id, open, back }: { id: string; open: (id: string, tit
   const setDef = useAction("templates.setDefault", { invalidate: inv });
   const run = useAction<{ output: string; source: string }>("templates.preview");
   const tpl = q.data?.templates.find((t) => t.id === id);
+  const claudeModels = useAiModels("claude").data;
   const [draft, setDraft] = useState<Template | null>(tpl ? structuredClone(tpl) : null);
   const [lang, setLang] = useState("en");
   const [preview, setPreview] = useState<{ output: string; source: string } | null>(null);
@@ -195,12 +196,7 @@ function TemplateEditor({ id, open, back }: { id: string; open: (id: string, tit
                   alignRight
                   label="Model"
                   value={draft.model ?? ""}
-                  options={[
-                    { value: "", label: "Use AI setup default" },
-                    { value: "claude-haiku-5-5", label: "Claude Haiku 5.5" },
-                    { value: "claude-sonnet-5-5", label: "Claude Sonnet 5.5" },
-                    { value: "claude-opus-5-5", label: "Claude Opus 5.5" },
-                  ]}
+                  options={[{ value: "", label: "Use AI setup default" }, ...(claudeModels ?? []).map((m) => ({ value: m.id, label: m.label }))]}
                   onChange={(v) => setDraft({ ...draft, model: v || null })}
                 />
               </SheetRow>

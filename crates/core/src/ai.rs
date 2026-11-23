@@ -40,8 +40,8 @@ pub struct ProviderInfo {
     pub effort: bool,
     pub local: bool,
     pub needs_url: bool,
-    /// Suggested models; providers without a fixed list take a free model id. Copilot's, Codex's and Antigravity's
-    /// come from their CLI: see `models`.
+    /// Suggested models; providers without a fixed list take a free model id. Claude's, Copilot's, Codex's,
+    /// Antigravity's and Ollama's come from their CLI when it is installed: see `models`.
     pub models: Vec<ModelInfo>,
 }
 
@@ -61,7 +61,7 @@ pub fn catalog() -> Vec<ProviderInfo> {
                 m("claude-opus-5-5", "Claude Opus 5.5"),
                 m("claude-sonnet-5-5", "Claude Sonnet 5.5"),
                 m("claude-haiku-5-5", "Claude Haiku 5.5"),
-                m("claude-fable-5-1", "Claude Fable 5.1"),
+                m("claude-fable-5-2", "Claude Fable 5.2"),
             ],
         },
         ProviderInfo {
@@ -163,31 +163,49 @@ fn fit_effort(models: &[ModelInfo], model: &str, effort: &str, any: bool) -> Str
     if takes { effort.into() } else { String::new() }
 }
 
-/// Models read from a provider's CLI this session. Only a successful read is kept: a signed-out CLI is asked again.
-static LISTED: Mutex<BTreeMap<String, Vec<ModelInfo>>> = Mutex::new(BTreeMap::new());
+/// Models read from a provider's CLI, with when. Only a successful read is kept: a signed-out CLI is asked again.
+static LISTED: Mutex<BTreeMap<String, (Instant, Vec<ModelInfo>)>> = Mutex::new(BTreeMap::new());
+/// How long a read list is used before the CLI is asked again, so new models show up without a restart.
+const LIST_TTL: Duration = Duration::from_secs(60 * 60);
+
+fn fresh_list(provider: &str) -> Option<Vec<ModelInfo>> {
+    LISTED.lock().unwrap().get(provider).filter(|(at, _)| at.elapsed() < LIST_TTL).map(|(_, l)| l.clone())
+}
 /// When `warm` last asked each CLI, so a failing one is asked at most once a minute.
 static ASKED: Mutex<BTreeMap<String, Instant>> = Mutex::new(BTreeMap::new());
 
 /// The provider's models known without asking its CLI.
 fn known_models(provider: &str) -> Vec<ModelInfo> {
-    let listed = LISTED.lock().unwrap().get(provider).cloned();
+    let listed = LISTED.lock().unwrap().get(provider).map(|(_, l)| l.clone());
     listed.unwrap_or_else(|| provider_info(provider).map(|p| p.models).unwrap_or_default())
 }
 
-/// The models the provider offers. Copilot's, Codex's and Antigravity's depend on the account, so their CLI lists them.
+/// The models the provider offers. They depend on the account and the CLI's version, so the CLI lists them.
+/// Claude without its CLI gets the built-in list.
 pub async fn models(provider: &str) -> Result<Vec<ModelInfo>> {
     let info = provider_info(provider)?;
-    if let Some(list) = LISTED.lock().unwrap().get(provider).cloned() {
+    if let Some(list) = fresh_list(provider) {
         return Ok(list);
     }
-    let list = match provider {
-        "copilot" => copilot_models().await?,
-        "codex" => codex_models().await?,
+    let read = match provider {
+        "claude" if cli_path(provider).is_ok() => claude_models().await,
+        "copilot" => copilot_models().await,
+        "codex" => codex_models().await,
         // Gemini CLI, the fallback, has no list.
-        "gemini" if cli_path(provider)?.0 == "agy" => agy_models().await?,
+        "gemini" if cli_path(provider)?.0 == "agy" => agy_models().await,
+        // Off or missing: no list, a model id is typed as before.
+        "ollama" if cli_path(provider).is_ok() => ollama_models().await,
         _ => return Ok(info.models),
     };
-    LISTED.lock().unwrap().insert(provider.into(), list.clone());
+    // Claude and Ollama work without a read list: Claude's built-in one, Ollama's free model id.
+    let fallback = matches!(provider, "claude" | "ollama");
+    let (list, at) = match read {
+        Ok(list) if !list.is_empty() || !fallback => (list, Instant::now()),
+        Err(e) if !fallback && !LISTED.lock().unwrap().contains_key(provider) => return Err(e),
+        // A failed read keeps the last list (else the built-in one), and the CLI is asked again in a minute.
+        _ => (known_models(provider), Instant::now().checked_sub(LIST_TTL - Duration::from_secs(60)).unwrap_or_else(Instant::now)),
+    };
+    LISTED.lock().unwrap().insert(provider.into(), (at, list.clone()));
     Ok(list)
 }
 
@@ -195,12 +213,19 @@ pub async fn models(provider: &str) -> Result<Vec<ModelInfo>> {
 pub async fn warm(provider: &str) {
     {
         let mut asked = ASKED.lock().unwrap();
-        if LISTED.lock().unwrap().contains_key(provider) || asked.get(provider).is_some_and(|t| t.elapsed() < Duration::from_secs(60)) {
+        if fresh_list(provider).is_some() || asked.get(provider).is_some_and(|t| t.elapsed() < Duration::from_secs(60)) {
             return;
         }
         asked.insert(provider.into(), Instant::now());
     }
     let _ = models(provider).await;
+}
+
+/// Claude Code's SDK `initialize` request lists the models the signed-in account can pick. No prompt is sent.
+async fn claude_models() -> Result<Vec<ModelInfo>> {
+    let ask = json!({ "type": "control_request", "request_id": "1", "request": { "subtype": "initialize" } });
+    let args = ["-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--setting-sources", ""];
+    parse_claude_models(&ask_cli("claude", &args, &[ask]).await?)
 }
 
 /// `copilot --headless --stdio` is the JSON-RPC server Copilot's SDK talks to.
@@ -221,20 +246,30 @@ async fn codex_models() -> Result<Vec<ModelInfo>> {
 
 /// `agy models` prints one `id<TAB>label` line per model.
 async fn agy_models() -> Result<Vec<ModelInfo>> {
-    let (_, path) = cli_path("gemini")?;
+    Ok(parse_agy_models(&cli_output("gemini", "models").await?))
+}
+
+/// `ollama list` prints a header, then one row per pulled model, its name first.
+async fn ollama_models() -> Result<Vec<ModelInfo>> {
+    Ok(parse_ollama_models(&cli_output("ollama", "list").await?))
+}
+
+/// What the provider's CLI prints for `arg`.
+async fn cli_output(provider: &str, arg: &str) -> Result<String> {
+    let (bin, path) = cli_path(provider)?;
     let mut cmd = Command::new(path);
     crate::shell::without_appimage(cmd.as_std_mut());
     // Outside any repository: agy opens its working dir as a workspace.
-    cmd.arg("models").current_dir(std::env::temp_dir()).stdin(Stdio::null()).kill_on_drop(true);
+    cmd.arg(arg).current_dir(std::env::temp_dir()).stdin(Stdio::null()).kill_on_drop(true);
     let out = tokio::time::timeout(Duration::from_secs(20), cmd.output())
         .await
-        .map_err(|_| Error::Ai("agy took over 20 s to list its models".into()))??;
+        .map_err(|_| Error::Ai(format!("{bin} took over 20 s to list its models")))??;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
-        flag_signed_out("gemini", &err);
-        return Err(Error::Ai(format!("agy models: {}", err.trim())));
+        flag_signed_out(provider, &err);
+        return Err(Error::Ai(format!("{bin} {arg}: {}", err.trim())));
     }
-    Ok(parse_agy_models(&String::from_utf8_lossy(&out.stdout)))
+    Ok(String::from_utf8_lossy(&out.stdout).into())
 }
 
 /// Send `msgs` to the provider's CLI started with `args`, and return its reply to id 1.
@@ -262,7 +297,8 @@ async fn ask_cli(provider: &str, args: &[&str], msgs: &[Value]) -> Result<Value>
         stdin.flush().await?;
         loop {
             let msg = read_message(&mut out, framed).await.map_err(|e| Error::Ai(format!("{bin} stopped before listing its models: {e}")))?;
-            if msg["id"] == 1 {
+            // Claude Code answers with a `control_response` carrying the request id as a string.
+            if msg["id"] == 1 || msg["response"]["request_id"] == "1" {
                 return Ok::<_, Error>(msg);
             }
         }
@@ -310,6 +346,27 @@ fn strs(v: &Value) -> Vec<String> {
     v.as_array().into_iter().flatten().filter_map(|x| x.as_str().map(String::from)).collect()
 }
 
+/// `initialize`'s reply: aliases (`opus`, `fable`) become the model they run, `default` is dropped as a repeat.
+fn parse_claude_models(msg: &Value) -> Result<Vec<ModelInfo>> {
+    let res = &msg["response"];
+    if res["subtype"] == "error" {
+        let e = res["error"].as_str().unwrap_or("initialize failed");
+        flag_signed_out("claude", e);
+        return Err(Error::Ai(format!("claude: {e}")));
+    }
+    let mut list: Vec<ModelInfo> = Vec::new();
+    for m in res["response"]["models"].as_array().into_iter().flatten().filter(|m| m["value"] != "default") {
+        let Some(id) = m["resolvedModel"].as_str().or(m["value"].as_str()) else { continue };
+        if list.iter().any(|l| l.id == id) {
+            continue;
+        }
+        let name = m["displayName"].as_str().unwrap_or(id);
+        let label = if name.starts_with("Claude") || name == id { name.to_string() } else { format!("Claude {name}") };
+        list.push(ModelInfo { id: id.into(), label, efforts: strs(&m["supportedEffortLevels"]) });
+    }
+    Ok(list)
+}
+
 /// `models.list`'s reply, without the models a policy turned off.
 fn parse_copilot_models(msg: &Value) -> Result<Vec<ModelInfo>> {
     rpc_error("copilot", msg)?;
@@ -333,6 +390,15 @@ fn parse_codex_models(msg: &Value) -> Result<Vec<ModelInfo>> {
             Some(ModelInfo { id: id.into(), label: m["displayName"].as_str().unwrap_or(id).into(), efforts })
         })
         .collect())
+}
+
+/// `ollama list` rows: `NAME  ID  SIZE  MODIFIED` under a header.
+fn parse_ollama_models(out: &str) -> Vec<ModelInfo> {
+    out.lines()
+        .skip(1)
+        .filter_map(|l| l.split_whitespace().next())
+        .map(|id| ModelInfo { id: id.into(), label: id.into(), efforts: vec![] })
+        .collect()
 }
 
 /// agy lists a model once per effort level, as `<base>-<level>` labelled `<name> (<Level>)`. Two or more of those
@@ -639,7 +705,7 @@ async fn anthropic(key: &str, r: &Resolved, prompt: &str) -> Result<String> {
         .header("anthropic-version", "2023-06-01")
         .header("content-type", "application/json");
     // Server-side fallback when a safety classifier declines the request.
-    if matches!(model, "claude-opus-5-5" | "claude-sonnet-5-5" | "claude-fable-5-1") {
+    if matches!(model, "claude-opus-5-5" | "claude-sonnet-5-5" | "claude-fable-5-2" | "claude-fable-5-1") {
         body["fallbacks"] = json!("default");
         req = req.header("anthropic-beta", "server-side-fallback-2026-07-01");
     }
@@ -731,6 +797,33 @@ pub fn status(cfg: &AiConfig, id: &str) -> Result<ProviderStatus> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn claude_models_from_initialize() {
+        let msg = json!({ "type": "control_response", "response": { "subtype": "success", "request_id": "1", "response": { "models": [
+            { "value": "default", "resolvedModel": "claude-opus-5-5", "displayName": "Default (recommended)", "supportedEffortLevels": ["low", "max"] },
+            { "value": "opus", "resolvedModel": "claude-opus-5-5", "displayName": "Opus 5.5", "supportedEffortLevels": ["low", "max"] },
+            { "value": "fable", "resolvedModel": "claude-fable-5-2", "displayName": "Fable 5.2", "supportedEffortLevels": ["low", "high"] },
+            { "value": "claude-haiku-4-5-20251001", "resolvedModel": "claude-haiku-4-5-20251001", "displayName": "Haiku 4.5" },
+        ] } } });
+        let list = parse_claude_models(&msg).unwrap();
+        let got: Vec<_> = list.iter().map(|m| (m.id.as_str(), m.label.as_str(), m.efforts.join(","))).collect();
+        assert_eq!(got, [
+            ("claude-opus-5-5", "Claude Opus 5.5", "low,max".to_string()),
+            ("claude-fable-5-2", "Claude Fable 5.2", "low,high".to_string()),
+            ("claude-haiku-4-5-20251001", "Claude Haiku 4.5", String::new()),
+        ]);
+        let err = json!({ "type": "control_response", "response": { "subtype": "error", "request_id": "1", "error": "boom" } });
+        assert!(parse_claude_models(&err).is_err());
+    }
+
+    #[test]
+    fn reads_ollama_list() {
+        let out = "NAME                ID              SIZE      MODIFIED\nllama3.2:latest     a80c4f17acd5    2.0 GB    2 weeks ago\nqwen3-coder:30b     06c1097efce0    18 GB     3 days ago\n";
+        let ids: Vec<_> = parse_ollama_models(out).into_iter().map(|m| m.id).collect();
+        assert_eq!(ids, ["llama3.2:latest", "qwen3-coder:30b"]);
+        assert!(parse_ollama_models("NAME    ID    SIZE    MODIFIED\n").is_empty());
+    }
 
     #[test]
     fn strips_fences() {
