@@ -161,9 +161,9 @@ export function useAppKeys() {
       if (!id) return;
       const at = e.target as Element;
       if (at.closest?.("[data-keys-input]") || document.querySelector("[role=dialog], [role=menu]")) return;
-      // Left to a text box for the keys that move its caret, and to a terminal for Ctrl or Alt with a letter (Ctrl+W deletes a word
-      // there). A shown terminal takes the focus, so its arrows stay the app's: Ctrl+→ goes on through the projects from it.
-      if (at.closest?.("input, textarea:not(.xterm-helper-textarea), select, [contenteditable]") && EDITING.test(e.code)) return;
+      // Left to a text box or a terminal (its focus is a textarea) for the keys that move the caret, so Ctrl+→ jumps a word there
+      // instead of changing project; and to a terminal for Ctrl or Alt with a letter (Ctrl+W deletes a word there).
+      if (at.closest?.("input, textarea, select, [contenteditable]") && EDITING.test(e.code)) return;
       if (at.closest?.(".xterm") && /^(Ctrl|Alt)\+Key[A-Z]$/.test(c)) return;
       e.preventDefault();
       e.stopPropagation();
