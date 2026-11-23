@@ -30,7 +30,7 @@ export type MenuItem =
 
 /** A group title in the menu, not a choice. */
 type MenuHeading = { heading: ReactNode };
-type Entry = MenuItem | MenuHeading;
+export type Entry = MenuItem | MenuHeading;
 
 /** Pickers with more choices than this get a search field. */
 export const SEARCH_ABOVE = 10;

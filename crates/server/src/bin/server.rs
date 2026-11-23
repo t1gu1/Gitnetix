@@ -5,8 +5,11 @@ use std::io::IsTerminal;
 
 use gitnetix_core::{store::data_dir, Gitnetix};
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+fn main() -> anyhow::Result<()> {
+    gitnetix_core::runtime()?.block_on(serve())
+}
+
+async fn serve() -> anyhow::Result<()> {
     tracing_subscriber::fmt().with_env_filter(std::env::var("RUST_LOG").unwrap_or_else(|_| "info".into())).init();
     let k = Gitnetix::open(&data_dir())?;
     let cfg = k.store.read(|c| c.server.clone());

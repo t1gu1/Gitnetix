@@ -30,3 +30,9 @@ pub mod watch;
 pub use app::Gitnetix;
 pub use error::{Error, ErrorBody, Result};
 pub use events::Event;
+
+/// The async runtime the server and the desktop app run on. Its worker threads get 8 MiB of stack, not tokio's 2 MiB: in a
+/// debug build the RPC dispatch alone takes about 1.6 MB, and a project's first overview overflowed the rest.
+pub fn runtime() -> std::io::Result<tokio::runtime::Runtime> {
+    tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(8 << 20).build()
+}

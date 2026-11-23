@@ -380,6 +380,39 @@ async fn cm02_reset_soft_mixed_hard() {
     assert_eq!(std::fs::read_to_string(e.repo.join("README.md")).unwrap(), "# repo\n");
 }
 
+/// CM-12: a branch reset onto a shipped release's commit, from that release's list on the trunk, is marked to start
+/// there: the map gets the release that shipped the commit and keeps it unmerged. A branch made from a tag is too. A branch
+/// at an old commit without the mark (merged long ago) is not, and a marked one reset past the latest tag stops being.
+#[tokio::test]
+async fn cm12_reset_onto_a_shipped_commit_starts_from_that_release() {
+    let e = env().await;
+    sh(&e.repo, &["tag", "-a", "v1.0.0", "-m", "v1.0.0"]);
+    let v1 = rev(&e.repo, "HEAD");
+    commit_file(&e.repo, "a.txt", "a\n");
+    let inside = rev(&e.repo, "HEAD");
+    commit_file(&e.repo, "b.txt", "b\n");
+    sh(&e.repo, &["tag", "-a", "v1.1.0", "-m", "v1.1.0"]);
+    commit_file(&e.repo, "c.txt", "c\n");
+    sh(&e.repo, &["push", "-q", "--follow-tags", "origin", "main"]);
+    sh(&e.repo, &["branch", "feat/old", &inside]);
+    e.call("items.create", json!({ "from": "main", "kind": "feat", "description": "", "branchName": "feat/debug", "where": "switch" })).await;
+
+    e.call("commits.reset", json!({ "branch": "feat/debug", "sha": inside, "mode": "hard", "shipped": true })).await;
+    assert_eq!(rev(&e.repo, "HEAD"), inside);
+    let v = e.view("feat/debug").await;
+    assert_eq!(v["fork"], json!({ "tag": "v1.1.0", "sha": inside }), "{v}");
+    assert_eq!((v["merged"].as_bool(), v["behind"].as_u64()), (Some(false), Some(2)), "{v}");
+    assert_eq!(e.view("feat/old").await["fork"], Value::Null, "no mark, no line from the trunk");
+
+    e.call("items.create", json!({ "from": "v1.0.0", "kind": "fix", "description": "", "branchName": "fix/at-tag", "where": "switch" })).await;
+    let v = e.view("fix/at-tag").await;
+    assert_eq!((v["fork"].clone(), v["merged"].as_bool()), (json!({ "tag": "v1.0.0", "sha": v1 }), Some(false)), "{v}");
+
+    sh(&e.repo, &["switch", "-q", "feat/debug"]);
+    e.call("commits.reset", json!({ "branch": "feat/debug", "sha": rev(&e.repo, "main"), "mode": "hard" })).await;
+    assert_eq!(e.view("feat/debug").await["fork"], Value::Null, "back past the latest tag");
+}
+
 /// CM-03: a pushed branch reset back a commit from the commit list. The map suggests Force push: a plain push
 /// is refused, a forced one moves origin back too.
 #[tokio::test]

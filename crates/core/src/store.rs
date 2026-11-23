@@ -284,6 +284,10 @@ pub struct BranchMeta {
     pub worktree: Option<String>,
     pub description: Option<String>,
     pub created_at: String,
+    /// Reset onto a shipped release's commit, or made from a tag, to try an earlier release: the map keeps it in view,
+    /// its line out of that release on the trunk, while it still sits there.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub from_shipped: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]

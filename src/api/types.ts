@@ -212,6 +212,8 @@ export interface BranchView {
   release?: string | null;
   /** Version this release branch shipped as. */
   shipped?: string | null;
+  /** Reset or made on a shipped release's commit, still based there: the first tag holding that commit, and the commit. Its line leaves the trunk there. */
+  fork?: { tag: string; sha: string } | null;
   local: boolean;
   /** Exists on origin. */
   remote: boolean;

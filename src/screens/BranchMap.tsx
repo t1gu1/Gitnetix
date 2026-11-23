@@ -3,7 +3,7 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type M
 import { createPortal } from "react-dom";
 
 import { useCleanupLeft } from "../lib/cleanups";
-import { useAction, useAgents, useCommits, useConfig, useFiles, useMapCommits, useOverviewProgress, useReleaseCommits, useReleaseCounts, useTagV } from "../api/hooks";
+import { useAction, useAgents, useCommits, useConfig, useFiles, useMapCommits, useOverviewProgress, useReleaseCommitLists, useReleaseCommits, useReleaseCounts, useTagV } from "../api/hooks";
 import { rpc } from "../api/transport";
 import type { BranchView, Commit, MapCommits, Overview, RebaseRun, ReleaseCount, ReleaseView } from "../api/types";
 import { Avatar } from "../components/Avatar";
@@ -67,6 +67,8 @@ const FOOT_H = 26;
 /** A shipped release's commits, unfolded under its station: two lines each, under the row's middle. */
 const SHIPPED_LIST_TOP = 14;
 const SHIPPED_COMMIT_H = 32;
+/** A commit there a branch started from is a box: this much taller than a row, its margins included (see `.map-relrow[data-fork]`). */
+const FORK_EXTRA = 20;
 /** Room the floating card takes on the right (its width and gap): the map scrolls out from under it. */
 const CARD_ROOM = 376;
 /** Column `d` of the map: the default branch's box beside the trunk, then each level of branches under it. */
@@ -120,7 +122,8 @@ function familyOf(o: Overview) {
   const kids = new Map<string, BranchView[]>();
   const roots: BranchView[] = [];
   for (const b of o.branches) {
-    const p = b.parent ? (names.has(b.parent) ? b.parent : o.defaultBranch) : null;
+    // One started from a shipped release sits on the trunk whatever it merges into: filed under the default branch.
+    const p = b.parent ? (names.has(b.parent) && !b.fork ? b.parent : o.defaultBranch) : null;
     if (!p || p === b.name || !names.has(p)) roots.push(b);
     else kids.set(p, [...(kids.get(p) ?? []), b]);
   }
@@ -128,8 +131,11 @@ function familyOf(o: Overview) {
   const time = (b: BranchView) => Date.parse(b.date) || 0;
   // o.releases lists the open ones newest first.
   const relOrder = (b: BranchView) => -o.releases.findIndex((r) => r.open && r.branch === b.name);
-  const rank = (b: BranchView) => (b.role === "release" ? 0 : b.role === "trunk" ? 1 : b.exists ? 2 : 3);
-  const order = (a: BranchView, b: BranchView) => rank(a) - rank(b) || relOrder(a) - relOrder(b) || time(b) - time(a) || a.name.localeCompare(b.name);
+  // Branches started from a shipped release first, oldest release on top as the trunk lists them: their lines come down
+  // from the trunk above, crossing no other.
+  const rank = (b: BranchView) => (b.fork ? -1 : b.role === "release" ? 0 : b.role === "trunk" ? 1 : b.exists ? 2 : 3);
+  const forkOrder = (b: BranchView) => (b.fork ? -o.releases.findIndex((r) => r.tagName === b.fork!.tag) : 0);
+  const order = (a: BranchView, b: BranchView) => rank(a) - rank(b) || forkOrder(a) - forkOrder(b) || relOrder(a) - relOrder(b) || time(b) - time(a) || a.name.localeCompare(b.name);
   const listed = new Set(o.releases.filter((r) => !r.open).map((r) => r.version));
   const inUse = (b: BranchView): boolean => b.name === o.currentBranch || (kids.get(b.name) ?? []).some((c) => !c.merged || inUse(c));
   const shipped = new Map<string, BranchView>();
@@ -185,7 +191,7 @@ export interface MapLayout {
    * Shipped releases on the trunk, oldest first, at their station's middle; with their branch while it is still around, and
    * the commits they shipped once unfolded: how many are listed, of how many, and the height they take under the row.
    */
-  shipped: { r: ReleaseView; y: number; b?: BranchView; list?: { n: number; total: number; box: number; h: number } }[];
+  shipped: { r: ReleaseView; y: number; b?: BranchView; list?: { n: number; total: number; box: number; h: number; forks: number[] } }[];
   shippedAll: ReleaseView[];
   /** Shipped releases past the latest few, listed only once "see all" unfolds them. */
   shippedEarlier: number;
@@ -212,14 +218,17 @@ function shippedRows(o: Overview, shown: boolean, toggles: ReadonlyMap<string, b
   return { all, earlier, rows };
 }
 
-/** A shipped release's commits, listed under its station: the newest few, or up to HISTORY_MAX once "see all" is open. One row while its count loads. */
-function shippedList(tag: string, toggles: ReadonlyMap<string, boolean>, counts: ReleaseCounts | undefined) {
+/**
+ * A shipped release's commits, listed under its station: the newest few, or up to HISTORY_MAX once "see all" is open. One row
+ * while its count loads. `forks`: the rows branches started from, by index, boxes FORK_EXTRA taller.
+ */
+function shippedList(tag: string, toggles: ReadonlyMap<string, boolean>, counts: ReleaseCounts | undefined, forks: number[] = []) {
   const total = counts?.[tag]?.commits ?? 1;
   const n = Math.min(total, toggles.get(`relall:${tag}`) ? HISTORY_MAX : COMMITS_SHOWN);
   // The rows 2px apart, then the "see all" row past the newest few.
-  const box = n * SHIPPED_COMMIT_H + (n - 1) * 2 + (total > COMMITS_SHOWN ? ROW : 0);
+  const box = n * SHIPPED_COMMIT_H + (n - 1) * 2 + forks.length * FORK_EXTRA + (total > COMMITS_SHOWN ? ROW : 0);
   // From the station's middle, the list starts SHIPPED_LIST_TOP down; the next station comes a pitch past its foot.
-  return { n, total, box, h: SHIPPED_LIST_TOP + box };
+  return { n, total, box, h: SHIPPED_LIST_TOP + box, forks };
 }
 type ReleaseCounts = Record<string, ReleaseCount>;
 
@@ -229,15 +238,17 @@ type ReleaseCounts = Record<string, ReleaseCount>;
  * children; its newest commits float under it, its merged branches hang under those. `toggles`: tiles whose commits the user
  * folded or unfolded (by name), their earlier commits listed too (`all:<name>`), merged groups shown whole (`merged:<name>`),
  * and every shipped release (`shipped:all`). A shipped release's commits unfold under its station (`rel:<tag>`), all of them
- * with `relall:<tag>`; `counts` sizes them.
+ * with `relall:<tag>`; `counts` sizes them, and `forkRows` (by tag) the rows branches started from.
  */
-function layoutMap(o: Overview, prefs: Pick<MapPrefs, "who" | "merged" | "behind" | "shipped">, me: string, toggles: ReadonlyMap<string, boolean>, counts?: ReleaseCounts): MapLayout {
+function layoutMap(o: Overview, prefs: Pick<MapPrefs, "who" | "merged" | "behind" | "shipped">, me: string, toggles: ReadonlyMap<string, boolean>, counts?: ReleaseCounts, forkRows: ReadonlyMap<string, number[]> = NO_FORKS): MapLayout {
   const fam = familyOf(o);
   const root = fam.roots.find(isRoot)?.name ?? o.defaultBranch;
   const mine = (b: BranchView) => !!me && b.email.toLowerCase() === me;
-  const stale = (b: BranchView) => b.role === "branch" && b.exists && !b.merged && b.behind >= BEHIND_LIMIT;
-  // A branch open in a worktree or with an agent session is listed on Worktrees & agents: the map shows it whatever the filters.
-  const inUse = (b: BranchView) => !!b.worktree || b.running || b.waiting;
+  // One started from a shipped release is behind on purpose, to try that release.
+  const stale = (b: BranchView) => b.role === "branch" && b.exists && !b.merged && !b.fork && b.behind >= BEHIND_LIMIT;
+  // A branch open in a worktree or with an agent session is listed on Worktrees & agents, and one started from a shipped
+  // release hangs on the trunk: the map shows them whatever the filters.
+  const inUse = (b: BranchView) => !!b.worktree || b.running || b.waiting || !!b.fork;
   const passes = (b: BranchView) => inUse(b) || ((prefs.behind || !stale(b)) && (prefs.who === "all" || mine(b)));
   // A merged branch with nothing live left on it is a station under its base, not a box.
   const chip = (b: BranchView) => b.merged && !inUse(b) && fam.kids(b.name).every((k) => !inUse(k) && k.merged);
@@ -284,7 +295,7 @@ function layoutMap(o: Overview, prefs: Pick<MapPrefs, "who" | "merged" | "behind
   // Under the "Shipped from" label (and "+N earlier releases"), a station per release; an unfolded one pushes the next down by its list.
   let cy = TOP + 40 + (shippedEarlier ? 24 : 0);
   const shippedAt = rows.map((r) => {
-    const list = r.tagName && toggles.get(`rel:${r.tagName}`) ? shippedList(r.tagName, toggles, counts) : undefined;
+    const list = r.tagName && toggles.get(`rel:${r.tagName}`) ? shippedList(r.tagName, toggles, counts, forkRows.get(r.tagName)) : undefined;
     const y = cy;
     cy += PITCH + (list?.h ?? 0);
     return { r, y, b: fam.shipped.get(r.version), list };
@@ -449,13 +460,16 @@ function findHits(m: MapLayout, qb: string, qc: string, found: MapCommits | unde
 }
 
 /** The map as laid out with the saved filters, for the map and the focus view's way back to it. */
-export function useMapLayout(o: Overview | undefined, toggles: ReadonlyMap<string, boolean> = NO_TOGGLES, counts?: ReleaseCounts) {
+export function useMapLayout(o: Overview | undefined, toggles: ReadonlyMap<string, boolean> = NO_TOGGLES, counts?: ReleaseCounts, forkRows: ReadonlyMap<string, number[]> = NO_FORKS) {
   const [prefs] = useMapPrefs();
   const me = useMe().email;
   const { who, merged, behind, shipped } = prefs;
-  return useMemo(() => o && layoutMap(o, { who, merged, behind, shipped }, me, toggles, counts), [o, who, merged, behind, shipped, me, toggles, counts]);
+  return useMemo(() => o && layoutMap(o, { who, merged, behind, shipped }, me, toggles, counts, forkRows), [o, who, merged, behind, shipped, me, toggles, counts, forkRows]);
 }
 const NO_TOGGLES = new Map<string, boolean>();
+const NO_FORKS = new Map<string, number[]>();
+/** Whether `c` (or a commit folded under it) is one of `shas`. */
+const holds = (c: Commit, shas: ReadonlySet<string> | ReadonlyMap<string, boolean>) => shas.has(c.sha) || !!c.merged?.some((m) => shas.has(m.sha));
 
 /** `name` and every branch above it, the root first. */
 export function lineageOf(layout: Pick<MapLayout, "parent">, name?: string) {
@@ -635,7 +649,23 @@ export function BranchMap({
   const atHit = hits.find((h) => h.key === hitKey) ?? hits[0];
   // The map as shown: unfolded where the match the search is on has to be.
   const shownToggles = useMemo(() => (atHit?.needs.length ? new Map([...toggles, ...atHit.needs]) : toggles), [toggles, atHit?.key]);
-  const layout = useMapLayout(o, shownToggles, counts)!;
+  // The open lists of releases a branch started from: the commit's row is a box there, and the branch's line leaves from it.
+  const forkTags = new Set(o.branches.flatMap((b) => (b.fork ? [b.fork.tag] : [])));
+  const openForks = shippedRows(o, prefs.shipped, shownToggles).rows.flatMap((r) =>
+    r.tagName && forkTags.has(r.tagName) && shownToggles.get(`rel:${r.tagName}`) ? [{ tag: r.tagName, n: shippedList(r.tagName, shownToggles, counts).n }] : [],
+  );
+  const forkLists = useReleaseCommitLists(pid, openForks);
+  const rowsNow = new Map(
+    openForks.flatMap(({ tag }) => {
+      const shas = new Set(o.branches.flatMap((b) => (b.fork?.tag === tag ? [b.fork.sha] : [])));
+      const rows = (forkLists.get(tag) ?? []).flatMap((c, i) => (holds(c, shas) ? [i] : []));
+      return rows.length ? [[tag, rows] as const] : [];
+    }),
+  );
+  // Kept while the rows stay the same: a new map each render would lay the map out again each time.
+  const forkRowsKey = JSON.stringify([...rowsNow]);
+  const forkRows = useMemo(() => rowsNow, [forkRowsKey]);
+  const layout = useMapLayout(o, shownToggles, counts, forkRows)!;
   const { tiles, at, W, H } = layout;
   const byName = useMemo(() => new Map(o.branches.map((b) => [b.name, b])), [o.branches]);
   const labelOf = (n: string) => {
@@ -915,8 +945,8 @@ export function BranchMap({
 
   const [tagMenu, setTagMenu] = useState<{ x: number; y: number; tag: string; checkedOut: boolean } | null>(null);
   // A commit listed on a tile, right-clicked: the same menu as in the focus view's timeline, for that tile's branch.
-  // One a shipped release listed (`shipped`) is history: no resets, counted from a list it is not part of.
-  const [menuOn, setMenuOn] = useState<{ b: BranchView; list: Commit[]; shipped?: boolean } | null>(null);
+  // One a shipped release listed (`shipped`, its tag) is history: its resets move the checked-out branch there, to try it.
+  const [menuOn, setMenuOn] = useState<{ b: BranchView; list: Commit[]; shipped?: string } | null>(null);
   const commitMenu = useCommitMenu({
     pid,
     branch: menuOn?.b.name ?? "",
@@ -924,6 +954,7 @@ export function BranchMap({
     checkedOut: !!menuOn && (menuOn.b.checkedOut || menuOn.b.name === o.currentBranch),
     upstream: !!menuOn?.b.upstream,
     current: o.currentBranch ?? undefined,
+    currentView: o.currentBranch ? byName.get(o.currentBranch) : undefined,
     list: menuOn?.list ?? [],
     shipped: menuOn?.shipped,
   });
@@ -938,6 +969,20 @@ export function BranchMap({
   // of or behind its parent, a chip sits on the middle of its line; behind, it rebases.
   const edges: { d: string; cls: string }[] = [];
   const lineChips: { x: number; y: number; t: Tile; onto: string; cls: string }[] = [];
+  // A branch started from a shipped release leaves the trunk at the commit's row when that release's list shows it, else
+  // in the gap under the release (under its list when open: the older commits); none when the release is not on the trunk
+  // (earlier ones folded, shipped hidden).
+  const forkFrom = (b: BranchView) => {
+    const f = b.fork;
+    const s = f && layout.shipped.find((x) => x.r.tagName === f.tag);
+    if (!f || !s) return undefined;
+    if (!s.list) return { gap: s.y + 18 };
+    const i = forkLists.get(f.tag)?.findIndex((c) => holds(c, new Set([f.sha]))) ?? -1;
+    if (i < 0 || i >= s.list.n) return { gap: s.y + s.list.h + 10 };
+    // Its box's middle: the boxes above it push it down, and its own margin and padding.
+    const above = s.list.forks.filter((j) => j < i).length;
+    return { row: s.y + SHIPPED_LIST_TOP + i * (SHIPPED_COMMIT_H + 2) + above * FORK_EXTRA + (SHIPPED_COMMIT_H + FORK_EXTRA) / 2 };
+  };
   for (const t of tiles) {
     const pn = layout.parent(t.b.name);
     const p = pn ? at.get(pn) : undefined;
@@ -949,11 +994,26 @@ export function BranchMap({
     const dx = (x2 - x1) / 2;
     const n = t.b.name;
     const cls = head.has(n) ? "head" : layout.stale(t.b) ? "stale" : t.ghost || (t.b.remote && !t.b.local) ? "far" : "";
+    const from = pn === layout.root ? forkFrom(t.b) : undefined;
+    if (from) {
+      // Off the trunk into the gap, then out past the trunk's column. From a commit: a tick off the trunk to its row, the
+      // line out from the row's end. No behind chip: it sits back there on purpose.
+      const fy = from.row ?? from.gap;
+      const out = from.row === undefined ? `M${TRUNK_X} ${fy - 18}C${TRUNK_X} ${fy - 6} ${TRUNK_X + 4} ${fy} ${TRUNK_X + 18} ${fy}H${x1}` : `M${TRUNK_X} ${fy}H${TRUNK_X + 18}M${x1} ${fy}`;
+      edges.push({ d: `${out}C${x1 + dx} ${fy} ${x2 - dx} ${y2} ${x2} ${y2}`, cls });
+      continue;
+    }
     edges.push({ d: `M${x1} ${y1}C${x1 + dx} ${y1} ${x2 - dx} ${y2} ${x2} ${y2}`, cls });
     // The default branch under a less advanced trunk (main under prod) is not rebased onto it.
     if (t.b.behind > 0 && t.b.exists && !t.b.merged && n !== o.defaultBranch) lineChips.push({ x: Math.round((x1 + x2) / 2), y: Math.round((y1 + y2) / 2), t, onto: pn!, cls });
   }
   const trunk = at.get(layout.root);
+  /** The commits of `tag` branches started from, and whether the checked-out branch's route runs through each. */
+  const forksIn = (tag: string) => {
+    const m = new Map<string, boolean>();
+    for (const b of o.branches) if (b.fork?.tag === tag) m.set(b.fork.sha, !!m.get(b.fork.sha) || head.has(b.name));
+    return m;
+  };
   const shippedName = (r: ReleaseView) => r.tagName ?? label(r.version);
   const shippedDate = (r: ReleaseView) => {
     const iso = o.project.releases.find((x) => x.version === r.version)?.shippedAt ?? /tagged (\d{4}-\d{2}-\d{2})/.exec(r.base)?.[1];
@@ -1218,9 +1278,10 @@ export function BranchMap({
                               onFocus={(c) => onFocus(o.defaultBranch, c)}
                               q={qc}
                               at={atHit?.tag === tag ? atHit.index : undefined}
+                              forks={forksIn(tag)}
                               onMenu={(c, shippedList, e) => {
                                 if (!defaultView) return;
-                                setMenuOn({ b: defaultView, list: shippedList, shipped: true });
+                                setMenuOn({ b: defaultView, list: shippedList, shipped: tag });
                                 commitMenu.open(c, e);
                               }}
                             />
@@ -1797,6 +1858,7 @@ function ShippedCommits({
   onMenu,
   q,
   at,
+  forks,
 }: {
   pid: string;
   tag: string;
@@ -1808,6 +1870,8 @@ function ShippedCommits({
   onMenu: (c: Commit, list: Commit[], e: MouseEvent) => void;
   q: string;
   at?: number;
+  /** Commits branches were reset onto or made from (their lines leave from these rows), and whether the checked-out branch's route runs through. */
+  forks: ReadonlyMap<string, boolean>;
 }) {
   const list = useReleaseCommits(pid, tag, n);
   const commits = list.data;
@@ -1822,9 +1886,12 @@ function ShippedCommits({
         const c = commits?.[i];
         if (commits && !list.isPlaceholderData && !c) return null;
         const here = i === at;
+        const fork = c && [c.sha, ...(c.merged ?? []).map((m) => m.sha)].find((s) => forks.has(s));
         return (
           // The row opens the commit from a button behind it; its SHA is a button of its own on top.
-          <div key={c?.sha ?? i} className="map-relrow" data-find-at={here || undefined}>
+          <div key={c?.sha ?? i} className="map-relrow" data-find-at={here || undefined} data-fork={fork ? "" : undefined}>
+            {/* Where the line from the trunk comes in, as on a box's left border. */}
+            {fork && <span className="map-stn" data-on={forks.get(fork) ? "via" : undefined} />}
             <button className="map-hitbox" disabled={!c} aria-label={c ? `Look at commit ${c.sha.slice(0, 7)}, ${c.subject}` : "Loading"} onClick={() => c && onFocus(c)} onContextMenu={menu(c)} />
             <span className="map-relrow-subject ellipsis">{c ? marked(c.subject, q, here) : "…"}</span>
             {c && (

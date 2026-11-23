@@ -1,8 +1,8 @@
 import { useState, type MouseEvent } from "react";
 
 import { useAction, useTagV } from "../api/hooks";
-import type { Commit } from "../api/types";
-import { ContextMenu, type MenuItem } from "../components/ContextMenu";
+import type { BranchView, Commit } from "../api/types";
+import { ContextMenu, type Entry, type MenuItem } from "../components/ContextMenu";
 import { ErrorBox, Modal } from "../components/ui";
 import { plural } from "../lib/format";
 import { copyToClipboard } from "../lib/toast";
@@ -13,6 +13,7 @@ type ResetMode = "soft" | "mixed" | "hard";
  * The right-click menu of a branch's commits, and the dialogs it opens: copy, revert, cherry-pick onto the main checkout's
  * branch, the resets, tags. `list`: the branch's commits as shown, newest first, origin's unpulled ones included; what a reset
  * takes off the branch or brings back is counted from it. `base`: the base's name, for a reset to where the branch left it.
+ * A shipped release's commits (`shipped`) reset the main checkout's branch instead, to try that release.
  * Render `el`; `open` on a commit's contextmenu event, `reset` from a button of its own.
  */
 export function useCommitMenu({
@@ -22,6 +23,7 @@ export function useCommitMenu({
   checkedOut,
   upstream,
   current,
+  currentView,
   list,
   shipped,
   onReset,
@@ -35,9 +37,11 @@ export function useCommitMenu({
   upstream: boolean;
   /** Branch of the main checkout, where cherry-picks land. */
   current?: string;
+  /** Its view: what a reset onto a shipped commit loses. */
+  currentView?: BranchView;
   list: Commit[];
-  /** `list` is what a shipped release holds, not the branch's own commits: no reverts or resets, which count from the branch. */
-  shipped?: boolean;
+  /** The tag of the shipped release `list` holds, not the branch's own commits: no reverts; resets move `current` there. */
+  shipped?: string;
   onReset?: () => void;
 }) {
   const [menu, setMenu] = useState<{ x: number; y: number; c: Commit } | null>(null);
@@ -63,9 +67,9 @@ export function useCommitMenu({
     setMenu({ x: fromKey ? r.left : e.clientX, y: fromKey ? r.bottom + 2 : e.clientY, c });
   };
 
-  const items = (c: Commit): MenuItem[] => {
+  const items = (c: Commit): Entry[] => {
     const short = c.sha.slice(0, 7);
-    const needCheckout = checkedOut ? undefined : "check out first";
+    const needCheckout = shipped ? (current ? undefined : "nothing checked out") : checkedOut ? undefined : "check out first";
     // Origin's unpulled commits can't be reverted, and a soft or mixed reset forward onto one would
     // leave the commits it brings back as reversed changes: only a hard reset goes there.
     const needLocal = c.unpulled ? "pull first" : needCheckout;
@@ -90,7 +94,8 @@ export function useCommitMenu({
       disabled: !!onto,
       run: () => pick.mutate({ projectId: pid, onto: current, sha: c.sha }),
     };
-    if (shipped) return [copy, "sep", pickItem, "sep", ...tags];
+    // A shipped commit's resets move the checked-out branch, not the list's own: named above them.
+    if (shipped) return [copy, "sep", pickItem, "sep", ...(current ? [{ heading: <>Resets move <span className="mono">{current}</span></> }] : []), ...resets, "sep", ...tags];
     return [
       copy,
       "sep",
@@ -106,7 +111,23 @@ export function useCommitMenu({
   const el = (
     <>
       {menu && <ContextMenu x={menu.x} y={menu.y} label={`Actions for ${menu.c.sha.slice(0, 7)}`} items={items(menu.c)} onClose={() => setMenu(null)} />}
-      {reset && (
+      {reset && shipped && current && (
+        <ResetModal
+          pid={pid}
+          branch={current}
+          commit={reset.c}
+          dropped={0}
+          restored={0}
+          lost={[]}
+          shipped={{ tag: shipped, unpushed: currentView ? unpushedOf(currentView) : 0, upstream: !!currentView?.upstream }}
+          mode={reset.mode}
+          upstream={false}
+          onMode={(mode) => setReset({ ...reset, mode })}
+          onDone={() => onReset?.()}
+          onClose={() => setReset(null)}
+        />
+      )}
+      {reset && !shipped && (
         <ResetModal
           pid={pid}
           branch={branch}
@@ -130,6 +151,9 @@ export function useCommitMenu({
   return { open, reset: (c: Commit, mode: ResetMode) => setReset({ c, mode }), el };
 }
 
+/** Commits of `b` origin never got: with no upstream, its own (the default branch's: those past the latest tag). */
+const unpushedOf = (b: BranchView) => (b.upstream ? b.upstreamAhead : b.parent ? b.ahead : (b.unreleased ?? 0));
+
 const RESET_MODES: { mode: ResetMode; label: string; hint: string }[] = [
   { mode: "soft", label: "Soft", hint: "Their changes stay staged, ready to commit again" },
   { mode: "mixed", label: "Mixed", hint: "Their changes stay in your files, unstaged" },
@@ -144,6 +168,7 @@ function ResetModal({
   dropped,
   restored,
   lost,
+  shipped,
   mode,
   upstream,
   onMode,
@@ -161,6 +186,8 @@ function ResetModal({
   restored: number;
   /** Never pushed commits that leave the branch: a hard reset loses them. */
   lost: Commit[];
+  /** `commit` is one shipped release `tag` holds: the branch moves there to try it, losing its `unpushed` commits on a hard reset. */
+  shipped?: { tag: string; unpushed: number; upstream: boolean };
   mode: ResetMode;
   upstream: boolean;
   onMode: (m: ResetMode) => void;
@@ -193,7 +220,7 @@ function ResetModal({
             disabled={pending}
             onClick={() =>
               reset.mutate(
-                { projectId: pid, branch, sha: commit.sha, mode },
+                { projectId: pid, branch, sha: commit.sha, mode, shipped: !!shipped },
                 // A failed push keeps the modal open on its error; the reset already happened.
                 { onSuccess: () => (forcePush && canPush ? push.mutate({ projectId: pid, branch, force: true }, { onSuccess: done }) : done()) },
               )
@@ -212,7 +239,12 @@ function ResetModal({
         </p>
       ) : (
         <>
-          {fork ? (
+          {shipped ? (
+            <p style={{ margin: 0, lineHeight: 1.55 }}>
+              Moves <span className="mono">{branch}</span> to this commit, shipped in <span className="mono">{shipped.tag}</span>, to try that release.
+              Its newer commits leave the branch{shipped.upstream ? "; Reset to origin brings them back" : ""}. Nothing is pushed.
+            </p>
+          ) : fork ? (
             <p style={{ margin: 0, lineHeight: 1.55 }}>
               Moves <span className="mono">{branch}</span> back to where it left <span className="mono">{fork}</span>.{" "}
               {dropped === 1 ? "Its commit leaves" : <>All {dropped} of its commits leave</>} the branch. If they were pushed, the next push must be forced.
@@ -235,6 +267,12 @@ function ResetModal({
             ))}
           </div>
         </>
+      )}
+      {shipped && mode === "hard" && shipped.unpushed > 0 && (
+        <div className="err-box warn">
+          {shipped.unpushed === 1 ? "1 commit" : `${shipped.unpushed} commits`} on <span className="mono">{branch}</span> never pushed: a hard reset loses{" "}
+          {shipped.unpushed === 1 ? "it" : "them"}.
+        </div>
       )}
       {mode === "hard" && lost.length > 0 && (
         <div className="err-box warn">

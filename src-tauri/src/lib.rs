@@ -403,6 +403,9 @@ mod desktop {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Before anything async: Tauri runs its tasks there, kept until the app quits.
+    let rt = gitnetix_core::runtime().expect("async runtime");
+    tauri::async_runtime::set(rt.handle().clone());
     // Before the window opens: the compositor reads the desktop file when the window first shows.
     #[cfg(target_os = "linux")]
     desktop::appimage_integrate();

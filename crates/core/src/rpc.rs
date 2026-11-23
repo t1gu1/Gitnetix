@@ -50,7 +50,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("workspace.fileHistory", "Commits of a branch that changed one file, newest first, following renames: each with the file's path there, from (its old path, on a rename), status and line counts; `limit` (default 200) is raised to reach older ones", "projectId, branch, path, limit?"),
     ("commits.revert", "Revert a commit with a new commit on its branch", "projectId, branch, sha"),
     ("commits.cherryPick", "Copy a commit onto a checked-out branch", "projectId, onto, sha"),
-    ("commits.reset", "Reset a checked-out branch to a commit", "projectId, branch, sha, mode: soft|mixed|hard"),
+    ("commits.reset", "Reset a checked-out branch to a commit; shipped = the commit is a shipped release's, reset onto to try that release: the branch map keeps the branch in view, drawn out of that release", "projectId, branch, sha, mode: soft|mixed|hard, shipped?"),
     ("commits.tag", "Tag a commit (annotated, message defaults to the name) and push it to origin", "projectId, sha, name, message?"),
     ("workspace.switch", "Check out a branch (uncommitted work comes along); abort = first abort the rebase/merge/cherry-pick/revert the checkout is stopped in; wip = stash|carry the uncommitted changes the checkout would overwrite (refused otherwise); returns conflicts left by carrying them", "projectId, branch, abort?, wip?"),
     ("workspace.stage", "Stage files (all when paths is empty)", "projectId, branch, paths?"),
@@ -755,7 +755,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "commits.revert" => to(json!({ "sha": k.revert_commit(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "sha")?).await? })),
         "commits.cherryPick" => to(json!({ "sha": k.cherry_pick(&s(&p, "projectId")?, &s(&p, "onto")?, &s(&p, "sha")?).await? })),
         "commits.reset" => {
-            k.reset_branch(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "sha")?, &s(&p, "mode")?).await?;
+            k.reset_branch(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "sha")?, &s(&p, "mode")?, b(&p, "shipped")).await?;
             ok()
         }
         "commits.tag" => {

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef } from "react";
-import { QueryClient, useMutation, useMutationState, useQuery, useQueryClient, type MutateOptions } from "@tanstack/react-query";
+import { QueryClient, useMutation, useMutationState, useQueries, useQuery, useQueryClient, type MutateOptions } from "@tanstack/react-query";
 
 import { isLocal, rpc, subscribe } from "./transport";
 import type {
@@ -518,14 +518,19 @@ export const useMapCommits = (projectId: string, branches: { name: string; base:
     placeholderData: (prev) => prev,
   });
 
+const releaseCommits = (projectId: string, tag: string, limit: number) => ({
+  queryKey: ["commits", projectId, `tag:${tag}`, limit],
+  queryFn: () => rpc<Commit[]>("releases.commits", { projectId, tag, limit }),
+  staleTime: 5 * 60_000,
+});
+
 /** Newest `limit` commits tag `tag` shipped. */
 export const useReleaseCommits = (projectId: string, tag: string, limit: number) =>
-  useQuery({
-    queryKey: ["commits", projectId, `tag:${tag}`, limit],
-    queryFn: () => rpc<Commit[]>("releases.commits", { projectId, tag, limit }),
-    staleTime: 5 * 60_000,
-    placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[2] === `tag:${tag}` ? prev : undefined),
-  });
+  useQuery({ ...releaseCommits(projectId, tag, limit), placeholderData: (prev, prevQuery) => (prevQuery?.queryKey[2] === `tag:${tag}` ? prev : undefined) });
+
+/** [`useReleaseCommits`] of several tags (the same queries), by tag. */
+export const useReleaseCommitLists = (projectId: string, lists: { tag: string; n: number }[]) =>
+  useQueries({ queries: lists.map((l) => releaseCommits(projectId, l.tag, l.n)), combine: (rs) => new Map(lists.map((l, i) => [l.tag, rs[i].data])) });
 
 // When this window last looked at each project's origin, and whether it was focused since.
 const lastLook = new Map<string, number>();

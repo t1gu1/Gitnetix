@@ -285,6 +285,10 @@ pub struct BranchView {
     pub release: Option<String>,
     /// Version this release branch shipped as (role "branch" once shipped).
     pub shipped: Option<String>,
+    /// Reset or made on a shipped release's commit (see [`BranchMeta::from_shipped`]) and still based there: where it
+    /// left its base. The map draws its line out of that release on the trunk.
+    #[serde(default)]
+    pub fork: Option<ShippedFork>,
     pub local: bool,
     /// Exists on origin.
     pub remote: bool,
@@ -298,6 +302,15 @@ pub struct BranchView {
     /// Author of its last commit.
     pub author: String,
     pub email: String,
+}
+
+/// Where a branch left its base, in a shipped release's history.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ShippedFork {
+    /// The first release tag holding that commit: the release that shipped it.
+    pub tag: String,
+    pub sha: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -2453,6 +2466,7 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
         role: role.into(),
         release: own_release.filter(|r| r.shipped_at.is_none()).map(|r| r.version.clone()).or_else(|| meta.and_then(|m| m.release.clone()).filter(|v| open_release(v))),
         shipped: own_release.filter(|r| r.shipped_at.is_some()).map(|r| r.version.clone()),
+        fork: None,
         local: info.is_some(),
         remote: refs.remote(name).is_some(),
         protected: false,
@@ -2464,7 +2478,7 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
 }
 
 /// Bump when branch views are built differently, so saved ones are not reused.
-const VIEW_CACHE_VERSION: &str = "19";
+const VIEW_CACHE_VERSION: &str = "20";
 
 /// Most commits of its own a branch is looked through for the branch it was built on (see [`Gitnetix::built_on`]).
 const OWN_MAX: usize = 1000;
@@ -2475,6 +2489,15 @@ const UNRELEASED_MAX: u32 = 1000;
 
 /// The latest tag behind `rev` and how many commits `rev` has past it. With no tag behind it: no tag, and all
 /// the commits `rev` holds, up to [`UNRELEASED_MAX`] (0 when `rev` is missing).
+/// Where `rev` left `base`, when a tag in `base`'s history holds that commit: the lowest version of them, the release that
+/// shipped it. None once the branch sits past the latest tag (rebased or reset back onto its base).
+async fn shipped_fork(git: &Git, rev: &str, base: &str) -> Option<ShippedFork> {
+    let sha = git.merge_base(rev, base).await.ok()?;
+    let (ok, out, _) = git.try_run(&["tag", "--contains", &sha, "--merged", base, "--sort=v:refname"]).await.ok()?;
+    let tag = out.lines().next().filter(|_| ok)?.trim().to_string();
+    Some(ShippedFork { tag, sha })
+}
+
 async fn since_last_tag(git: &Git, rev: &str) -> (Option<String>, u32) {
     match git.last_tag(rev).await {
         Ok(Some((tag, n))) => (Some(tag), n),
@@ -2495,7 +2518,7 @@ async fn since_last_tag(git: &Git, rev: &str) -> (Option<String>, u32) {
 fn view_key(p: &Project, default: &str, fingerprint: &str, hosted: &str) -> u64 {
     let releases = serde_json::to_string(&p.releases).unwrap_or_default();
     // Only the settings views read: a branch's worktree, description or creation date moves none of them.
-    let read: Vec<_> = p.branches.iter().map(|(name, m)| (name, &m.kind, &m.release, &m.parent, &m.ticket)).collect();
+    let read: Vec<_> = p.branches.iter().map(|(name, m)| (name, &m.kind, &m.release, &m.parent, &m.ticket, m.from_shipped)).collect();
     let branches = serde_json::to_string(&read).unwrap_or_default();
     key_of(&[VIEW_CACHE_VERSION, env!("CARGO_PKG_VERSION"), default, fingerprint, &releases, &branches, hosted])
 }
@@ -3754,6 +3777,9 @@ impl Gitnetix {
             (Some(u), Some(i)) if v.upstream_ahead > 0 && v.upstream_behind > 0 => git.in_reflog(&format!("refs/remotes/{u}"), &i.sha).await.unwrap_or(false),
             _ => false,
         };
+        if let (true, Some(r), Some(b)) = (p.branches.get(name).is_some_and(|m| m.from_shipped), &rev, &base_rev) {
+            v.fork = shipped_fork(git, r, b).await;
+        }
         // Trunks and open releases live on; only work gets merged away.
         v.merged = match (&rev, &base_rev) {
             (Some(r), Some(b)) if v.role == "branch" => {
@@ -3774,6 +3800,10 @@ impl Gitnetix {
             }
             _ => false,
         };
+        // Parked on a shipped commit to try that release: it holds nothing, so nothing of it landed.
+        if v.fork.is_some() && v.ahead == 0 {
+            v.merged = false;
+        }
         // No proof, but a pull request carrying its ticket key went into the base after its last commit.
         if let (false, "branch", true, Some(b)) = (v.merged, v.role.as_str(), v.ahead > 0, &base_rev) {
             v.likely_merged = refs.holds_any(git, &self.commits, &refs.ticket_squashes(git, &self.commits, &branch_tickets(p, name), name).await, b).await;
@@ -4195,7 +4225,9 @@ impl Gitnetix {
     }
 
     /// Move `branch` to one of its commits: soft keeps the changes staged, mixed unstaged, hard drops them.
-    pub async fn reset_branch(&self, project_id: &str, branch: &str, sha: &str, mode: &str) -> Result<()> {
+    /// `shipped`: `sha` is a shipped release's commit, reset onto to try that release; the branch is marked so (see
+    /// [`BranchMeta::from_shipped`]). The default branch is the trunk itself: never marked.
+    pub async fn reset_branch(&self, project_id: &str, branch: &str, sha: &str, mode: &str, shipped: bool) -> Result<()> {
         // Keep only serves Gitnetix's own rollbacks (see `roll_back`).
         if !matches!(mode, "soft" | "mixed" | "hard") {
             return Err(Error::Invalid(format!("unknown reset mode {mode:?}")));
@@ -4205,6 +4237,13 @@ impl Gitnetix {
         // A paused rebase has HEAD detached: the reset would move HEAD, not the branch, and drop the rebase's work.
         refuse_in_progress(&git, git.cwd(), branch).await?;
         git.reset(check_sha(sha)?, mode).await?;
+        if shipped && branch != git.default_branch().await? {
+            self.store.with_project(project_id, |p| {
+                let m = p.branches.entry(branch.to_string()).or_insert_with(|| BranchMeta { created_at: now(), ..Default::default() });
+                m.from_shipped = true;
+                Ok(())
+            })?;
+        }
         self.changed(project_id);
         Ok(())
     }
@@ -5591,6 +5630,7 @@ impl Gitnetix {
             worktree: worktree.clone(),
             description: Some(req.description.clone()),
             created_at: now(),
+            from_shipped: start.starts_with("refs/tags/"),
         };
         // Saved before git makes the branch: a refresh while git works (a worktree checking out files) files it under its parent
         // at once, instead of under a guess that moves once the parent is saved.

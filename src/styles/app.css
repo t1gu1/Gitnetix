@@ -2116,6 +2116,22 @@ body.resizing .term {
 .map-relrow:hover .map-relrow-subject {
   color: var(--fg);
 }
+/* A branch's line leaves from this commit (reset onto it, or made from it): a box out to the line, its dot on the left edge.
+   Its height and margins add up to FORK_EXTRA (BranchMap.tsx) over a row's 32px. */
+.map-relrow[data-fork] {
+  height: 40px;
+  margin: 6px 0;
+  padding: 0 10px 0 16px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+}
+.map-relrow[data-fork] .map-relrow-subject {
+  color: var(--fg);
+}
+.map-relrow > .map-stn {
+  left: 0;
+  top: 50%;
+}
 .map-relrow-meta {
   position: relative;
   display: flex;
