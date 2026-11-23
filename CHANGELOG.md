@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.34.0] - 2026-11-22
+
 ### Added (App)
 - Create a branch from a commit in the commit list with "Create a branch from that commit" in the commit menu. The branch starts at that commit and merges into the branch the commit was picked on.
 - Branches reset onto a shipped release's commit, or made from a tag, are marked as started from that release. The branch map draws their line out of that release and keeps them in view. The commit menu on a shipped release resets the checked-out branch onto that commit.
