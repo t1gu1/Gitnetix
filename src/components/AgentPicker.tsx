@@ -1,8 +1,7 @@
 import { useState, type CSSProperties, type ReactNode } from "react";
 
-import { useAiCatalog, useAiModels } from "../api/hooks";
+import { useAiCatalog, useAiModels, useProjectPrefs } from "../api/hooks";
 import type { ModelInfo, ProviderInfo } from "../api/types";
-import { useStored } from "../lib/stored";
 import { ContextMenu, SEARCH_ABOVE, type MenuItem } from "./ContextMenu";
 import { Icon } from "./Icon";
 
@@ -46,8 +45,21 @@ export const takesUltracode = (provider: string | undefined, models: ModelInfo[]
 /** Provider, model, effort, permission and ultracode for a new agent session. Empty = the "Free-form agent" routing. */
 export type AgentPick = { provider?: string; model?: string; effort?: string; permission?: string; ultracode?: boolean };
 
-/** The last pick on a project, kept between sessions. */
-export const useAgentPick = (projectId: string) => useStored<AgentPick>(`gnx.agentPick.${projectId}`, {});
+/** The last pick on a project, in the profile's settings of that project; a profile adding the project takes another profile's pick. */
+export const useAgentPick = (projectId: string): [AgentPick, (p: AgentPick) => void] => {
+  const { agent, setAgent } = useProjectPrefs(projectId);
+  // No project chosen yet (new agent session dialog): held here, nowhere to save it.
+  const [loose, setLoose] = useState<AgentPick>({});
+  if (!projectId) return [loose, setLoose];
+  const pick: AgentPick = {
+    provider: agent.provider ?? undefined,
+    model: agent.model ?? undefined,
+    effort: agent.effort ?? undefined,
+    permission: agent.permission ?? undefined,
+    ultracode: agent.ultracode ?? undefined,
+  };
+  return [pick, setAgent];
+};
 
 /**
  * The agent's provider, model, effort, permissions and ultracode: one button showing the model and an effort meter, opening

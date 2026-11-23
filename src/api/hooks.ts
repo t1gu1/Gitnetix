@@ -29,6 +29,7 @@ import type {
   PrSummary,
   ProjectSummary,
   ReleaseCount,
+  Route,
   Skill,
   SprintReport,
   Submodule,
@@ -178,9 +179,9 @@ const DIALOG_DEFAULTS: DialogPrefs = { finish: "merge", finishSwitch: true, newW
 
 const TYPES_DEFAULTS: BranchTypes = { list: DEFAULT_TYPES.map((id) => ({ id, pinned: false })), oneRow: false, tagV: null };
 
-type PrefsPatch = { merge?: Partial<MergePrefs>; commit?: Partial<CommitPrefs>; dialogs?: Partial<DialogPrefs>; worktreeFiles?: string[]; worktreeLinks?: string[]; branchTypes?: Partial<BranchTypes> };
+type PrefsPatch = { merge?: Partial<MergePrefs>; commit?: Partial<CommitPrefs>; dialogs?: Partial<DialogPrefs>; worktreeFiles?: string[]; worktreeLinks?: string[]; branchTypes?: Partial<BranchTypes>; agent?: Route };
 
-/** A project's remembered merge, commit and dialog options and worktree files and links. Changes show at once, then save. */
+/** A project's remembered merge, commit and dialog options, agent, and worktree files and links. Changes show at once, then save. */
 export function useProjectPrefs(projectId?: string) {
   const qc = useQueryClient();
   const project = useConfig().data?.projects.find((p) => p.id === projectId);
@@ -195,7 +196,7 @@ export function useProjectPrefs(projectId?: string) {
           ...c,
           projects: c.projects.map((p) =>
             p.id === projectId
-              ? { ...p, merge: { ...MERGE_DEFAULTS, ...p.merge, ...patch.merge }, commit: { ...COMMIT_DEFAULTS, ...p.commit, ...patch.commit }, dialogs: { ...DIALOG_DEFAULTS, ...p.dialogs, ...patch.dialogs }, worktreeFiles: patch.worktreeFiles ?? p.worktreeFiles, worktreeLinks: patch.worktreeLinks ?? p.worktreeLinks, branchTypes: { ...TYPES_DEFAULTS, ...p.branchTypes, ...patch.branchTypes } }
+              ? { ...p, merge: { ...MERGE_DEFAULTS, ...p.merge, ...patch.merge }, commit: { ...COMMIT_DEFAULTS, ...p.commit, ...patch.commit }, dialogs: { ...DIALOG_DEFAULTS, ...p.dialogs, ...patch.dialogs }, worktreeFiles: patch.worktreeFiles ?? p.worktreeFiles, worktreeLinks: patch.worktreeLinks ?? p.worktreeLinks, branchTypes: { ...TYPES_DEFAULTS, ...p.branchTypes, ...patch.branchTypes }, agent: patch.agent ?? p.agent }
               : p,
           ),
         },
@@ -212,12 +213,14 @@ export function useProjectPrefs(projectId?: string) {
     worktreeFiles: project?.worktreeFiles ?? [],
     worktreeLinks: project?.worktreeLinks ?? [],
     branchTypes: { ...TYPES_DEFAULTS, ...project?.branchTypes },
+    agent: project?.agent ?? {},
     setMerge: (merge: Partial<MergePrefs>) => save.mutate({ merge }),
     setCommit: (commit: Partial<CommitPrefs>) => save.mutate({ commit }),
     setDialogs: (dialogs: Partial<DialogPrefs>) => save.mutate({ dialogs }),
     setWorktreeFiles: (worktreeFiles: string[]) => save.mutate({ worktreeFiles }),
     setWorktreeLinks: (worktreeLinks: string[]) => save.mutate({ worktreeLinks }),
     setBranchTypes: (branchTypes: Partial<BranchTypes>) => save.mutate({ branchTypes }),
+    setAgent: (agent: Route) => save.mutate({ agent }),
   };
 }
 

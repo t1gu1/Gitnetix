@@ -86,6 +86,8 @@ pub struct Project {
     pub commit: CommitPrefs,
     /// What the other dialogs start with, set in the project's settings.
     pub dialogs: DialogPrefs,
+    /// The agent last picked for this project. Empty = the profile's agent routing.
+    pub agent: Route,
     /// Paths from the checkout root (ignored files git leaves out) copied from the main checkout into each new worktree.
     pub worktree_files: Vec<String>,
     /// Paths linked, not copied: the worktree reads and writes the main checkout's.
@@ -319,7 +321,7 @@ pub struct ProviderConf {
     pub connected: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
 pub struct Route {
     pub provider: Option<String>,
@@ -718,8 +720,22 @@ fn parse(raw: &str) -> Result<Config> {
             cfg.worktree_defaults_added.push(f);
         }
     }
+    // The agent picks used to live in view state, one per project: move each into its project, once.
+    let picks: Vec<String> = cfg.ui.view.keys().filter(|k| k.starts_with(AGENT_PICK_PREFIX)).cloned().collect();
+    for key in picks {
+        let raw = cfg.ui.view.remove(&key).unwrap_or_default();
+        let id = &key[AGENT_PICK_PREFIX.len()..];
+        if let (Ok(route), Some(p)) = (serde_json::from_str::<Route>(&raw), cfg.projects.iter_mut().find(|p| p.id == id)) {
+            if p.agent == Route::default() {
+                p.agent = route;
+            }
+        }
+    }
     Ok(cfg)
 }
+
+/// View-state key prefix of the agent picks kept before they moved to `Project::agent`.
+const AGENT_PICK_PREFIX: &str = "gnx.agentPick.";
 
 /// The settings at `path`; defaults when there is no file yet.
 fn read_config(path: &Path) -> Result<Config> {
@@ -1022,6 +1038,27 @@ mod tests {
         assert_eq!(store.read(|c| c.worktree_files.clone()), super::DEFAULT_WORKTREE_FILES);
         store.write(|c| Ok(c.worktree_files.clear())).unwrap();
         assert!(super::Store::open(fresh.path()).unwrap().read(|c| c.worktree_files.is_empty()));
+    }
+
+    #[test]
+    fn agent_picks_in_view_state_move_into_their_project_once() {
+        let raw = serde_json::json!({
+            "projects": [
+                { "id": "p1", "name": "a", "path": "/a" },
+                { "id": "p2", "name": "b", "path": "/b", "agent": { "provider": "claude" } }
+            ],
+            "ui": { "view": {
+                "gnx.agentPick.p1": "{\"provider\":\"copilot\",\"model\":\"gpt-5\",\"ultracode\":false}",
+                "gnx.agentPick.p2": "{\"provider\":\"copilot\"}",
+                "gnx.tickets.mine": "true"
+            } }
+        });
+        let cfg = super::parse(&raw.to_string()).unwrap();
+        let p1 = &cfg.projects[0].agent;
+        assert_eq!((p1.provider.as_deref(), p1.model.as_deref(), p1.ultracode), (Some("copilot"), Some("gpt-5"), Some(false)));
+        assert_eq!(cfg.projects[1].agent.provider.as_deref(), Some("claude"), "a pick already on the project wins");
+        assert!(!cfg.ui.view.keys().any(|k| k.starts_with("gnx.agentPick.")));
+        assert_eq!(cfg.ui.view.get("gnx.tickets.mine").map(String::as_str), Some("true"));
     }
 
     #[test]

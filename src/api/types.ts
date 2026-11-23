@@ -129,6 +129,8 @@ export interface Project {
   merge: MergePrefs;
   commit: CommitPrefs;
   dialogs: DialogPrefs;
+  /** The agent last picked here. Empty = the profile's agent routing. */
+  agent: Route;
   /** Paths from the checkout root copied from the main checkout into each new worktree. */
   worktreeFiles: string[];
   /** Paths linked instead: the worktree reads and writes the main checkout's. */

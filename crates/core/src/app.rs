@@ -3296,6 +3296,19 @@ impl Gitnetix {
         Ok(None)
     }
 
+    /// The agent last picked for `path` in another profile, so a project taken from there keeps it. Empty when none.
+    fn agent_from_other_profiles(&self, path: &str) -> Route {
+        let active = self.store.active();
+        for prof in self.store.profiles().list.into_iter().filter(|p| p.id != active) {
+            // An unreadable profile only loses its pick here.
+            let Ok(c) = self.store.profile_config(&prof.id) else { continue };
+            if let Some(p) = c.projects.iter().find(|p| p.path == path && p.agent != Route::default()) {
+                return p.agent.clone();
+            }
+        }
+        Route::default()
+    }
+
     pub async fn add_projects(&self, paths: Vec<String>) -> Result<Vec<Project>> {
         let mut added = Vec::new();
         for raw in paths {
@@ -3315,7 +3328,8 @@ impl Gitnetix {
                 continue;
             }
             let name = top.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| path.clone());
-            let mut project = Project { id: new_id(), name, path, added_at: now(), ..Default::default() };
+            let agent = self.agent_from_other_profiles(&path);
+            let mut project = Project { id: new_id(), name, path, added_at: now(), agent, ..Default::default() };
             self.import_release_branches(&mut project).await;
             self.store.write(|c| {
                 c.projects.push(project.clone());
@@ -10016,6 +10030,30 @@ mod tests {
         assert_eq!(req.pick.provider.as_deref(), Some("codex"));
         assert_eq!(req.pick.effort.as_deref(), Some("high"));
         assert!(req.pick.model.is_none());
+    }
+
+    #[tokio::test]
+    async fn a_project_taken_from_another_profile_keeps_its_agent_pick() {
+        use crate::store::UserProfile;
+        let dir = tempfile::tempdir().unwrap();
+        let k = Gitnetix::open(dir.path()).unwrap();
+        let repo = dir.path().join("repo");
+        std::fs::create_dir(&repo).unwrap();
+        let git = |args: &[&str]| assert!(std::process::Command::new("git").args(args).current_dir(&repo).status().unwrap().success());
+        git(&["init", "-q"]);
+        git(&["-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init"]);
+        let path = std::fs::canonicalize(&repo).unwrap().to_string_lossy().into_owned();
+        let pick = Route { provider: Some("copilot".into()), model: Some("gpt-5".into()), ..Default::default() };
+        k.store
+            .write(|c| {
+                c.projects.push(Project { id: "old".into(), name: "repo".into(), path: path.clone(), agent: pick.clone(), ..Default::default() });
+                Ok(())
+            })
+            .unwrap();
+        let other = k.create_profile(UserProfile { name: "Work".into(), ..Default::default() }, None, None).unwrap();
+        k.switch_profile(&other.id).unwrap();
+        let added = k.add_projects(vec![path]).await.unwrap();
+        assert_eq!(added[0].agent, pick);
     }
 
     #[tokio::test]
