@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type MouseEvent, type PointerEvent, type ReactElement, type ReactNode, type RefObject } from "react";
+import { Fragment, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type CSSProperties, type HTMLAttributes, type MouseEvent, type PointerEvent, type ReactElement, type ReactNode, type RefObject } from "react";
 
 import type { Blame, DiffLine, Hunk, LinePick } from "../api/types";
 import { ago, plural } from "../lib/format";
@@ -41,8 +41,15 @@ export interface Review {
   /** The lines picked, first and last in diff order. */
   picked: { from: DiffAt; to: DiffAt } | null;
   onPick: (from: DiffAt, to: DiffAt) => void;
-  /** What goes under a line: its conversations, and the comment being written when it ends the picked lines. */
+  /** What goes under a line: the comment being written when it ends the picked lines. */
   below: (at: DiffAt) => ReactNode;
+  /** The conversations on a line, for the bubble left of its numbers: how many, whether all are resolved, whether the
+   * picked one is among them. Without it the diff has no bubble column. */
+  threads?: (at: DiffAt) => { count: number; resolved: boolean; on: boolean } | null;
+  /** A press on a line's bubble, or a click on the code of a line with conversations. */
+  onThreads?: (at: DiffAt) => void;
+  /** Drawn beside the lines, scrolling with them. */
+  margin?: ReactNode;
 }
 
 /** Past this many lines (or this much text) a diff waits for "Show anyway": drawing it all can freeze the app. */
@@ -91,11 +98,13 @@ function Diff({ path, hunks, mode, staging, blame, review }: { path: string; hun
   return (
     <>
       <Heatmapped scroller={scroller} hunks={shown.hunks} split={mode === "split"}>
-        {mode === "split" ? (
-          <Split hunks={shown.hunks} tokens={shown.tokens} picking={picking} reviewing={reviewing} />
-        ) : (
-          <Unified hunks={shown.hunks} tokens={shown.tokens} headers={mode === "unified"} picking={picking} reviewing={reviewing} />
-        )}
+        <Margined margin={review?.margin}>
+          {mode === "split" ? (
+            <Split hunks={shown.hunks} tokens={shown.tokens} picking={picking} reviewing={reviewing} />
+          ) : (
+            <Unified hunks={shown.hunks} tokens={shown.tokens} headers={mode === "unified"} picking={picking} reviewing={reviewing} />
+          )}
+        </Margined>
         {blame && <BlameMarks scroller={scroller} blamed={blame} drawn={[shown.hunks, mode]} />}
       </Heatmapped>
       {picking && picking.picked.size > 0 && <PickBar picking={picking} />}
@@ -130,6 +139,17 @@ function findRanges(root: HTMLElement, q: string): Range[] {
     }
   }
   return out;
+}
+
+/** The lines with `margin` in a column on their right, both in the diff's scroll. The box stays when the margin goes:
+ * swapping it for the bare lines would draw them again and lose the scroll. */
+function Margined({ margin, children }: { margin?: ReactNode; children: ReactElement }) {
+  return (
+    <div className={margin ? "diff-margined" : undefined}>
+      {children}
+      {margin}
+    </div>
+  );
 }
 
 /** Ctrl+F (Cmd+F) over the drawn lines: every match marked, the current one stronger, and the arrows scroll from one to
@@ -336,8 +356,9 @@ interface Reviewing {
   review: Review;
   /** Each line's place and numbers, by hunk. */
   at: DiffAt[][];
-  /** Class and mouse handlers of a line's row (a half, in split mode). */
-  row: (at: DiffAt) => { cls: string; props: { onMouseDown: (e: MouseEvent<HTMLElement>) => void; onMouseEnter: (e: MouseEvent<HTMLElement>) => void } };
+  /** Class, line numbers (`data-o`, `data-n`, for what the margin lines up with) and mouse handlers of a line's row (a
+   * half, in split mode). */
+  row: (at: DiffAt) => { cls: string; props: HTMLAttributes<HTMLElement> & Record<`data-${string}`, number | undefined> };
 }
 
 /** Lines picked to comment on: a press on a line's numbers picks it; dragging on from there, or a shift-click after,
@@ -375,23 +396,51 @@ function useReviewing(hunks: Hunk[], review?: Review): Reviewing | undefined {
   return {
     review,
     at,
-    row: (l) => ({
-      cls: p && l.hunk === p.from.hunk && l.i >= p.from.i && l.i <= p.to.i ? " noted" : "",
-      props: {
-        onMouseDown: (e) => {
-          if (e.button !== 0 || !(e.target as HTMLElement).closest(".ln, .sg")) return;
-          e.preventDefault();
-          const extend = e.shiftKey && review.ranges && anchor.current?.hunk === l.hunk;
-          if (!extend) anchor.current = l;
-          go(extend ? anchor.current! : l, l);
+    row: (l) => {
+      const talk = review.threads?.(l);
+      return {
+        cls: (p && l.hunk === p.from.hunk && l.i >= p.from.i && l.i <= p.to.i ? " noted" : "") + (talk ? (talk.on ? " talk-on" : " talked") : ""),
+        props: {
+          "data-o": l.kind !== "+" ? l.old : undefined,
+          "data-n": l.kind !== "-" ? l.new : undefined,
+          // The code of a line with conversations picks them, unless the click ended a text selection.
+          onClick: (e) => {
+            if (talk && (e.target as HTMLElement).closest(".tx") && window.getSelection()?.isCollapsed !== false) review.onThreads?.(l);
+          },
+          onMouseDown: (e) => {
+            if (e.button !== 0 || !(e.target as HTMLElement).closest(".ln, .sg")) return;
+            e.preventDefault();
+            const extend = e.shiftKey && review.ranges && anchor.current?.hunk === l.hunk;
+            if (!extend) anchor.current = l;
+            go(extend ? anchor.current! : l, l);
+          },
+          onMouseEnter: (e) => {
+            const d = drag.current;
+            if (d && e.buttons & 1 && review.ranges && d.from.hunk === l.hunk) go(d.from, l);
+          },
         },
-        onMouseEnter: (e) => {
-          const d = drag.current;
-          if (d && e.buttons & 1 && review.ranges && d.from.hunk === l.hunk) go(d.from, l);
-        },
-      },
-    }),
+      };
+    },
   };
+}
+
+/** The bubble cell of a row when the review marks lines with conversations, last in the row but drawn in its first
+ * column (app.css): empty on the other lines, so the numbers keep their column. `at` is left out where a split
+ * row's other half shows the bubble. */
+function Bubble({ reviewing, at }: { reviewing?: Reviewing; at?: DiffAt }) {
+  const review = reviewing?.review;
+  if (!review?.threads) return null;
+  const t = at && review.threads(at);
+  return (
+    <span className="bq">
+      {t && (
+        <button className={`bub${t.resolved ? " done" : ""}`} aria-pressed={t.on} aria-label={`${plural(t.count, "conversation")}${t.resolved ? ", resolved" : ""}`} onClick={() => review.onThreads?.(at)}>
+          <Icon name={t.resolved ? "check" : "comment"} size={10} stroke={1.5} />
+          {t.count > 1 && t.count}
+        </button>
+      )}
+    </span>
+  );
 }
 
 /** A row followed by what the review puts under its lines: a split row's two, once for an unchanged line (both halves). */
@@ -539,6 +588,7 @@ function Unified({ hunks, tokens, headers = true, picking, reviewing }: { hunks:
           ) : (
             <span className="tx">{h.header}</span>
           )}
+          <Bubble reviewing={reviewing} />
         </div>,
       );
     let o = h.oldStart;
@@ -555,6 +605,7 @@ function Unified({ hunks, tokens, headers = true, picking, reviewing }: { hunks:
           <span className="ln">{l.kind === "-" ? "" : n}</span>
           <span className="sg">{l.kind === " " ? "" : l.kind === "-" ? "−" : "+"}</span>
           <span className="tx">{code(l.text, tokens?.[hi][li])}</span>
+          <Bubble reviewing={reviewing} at={at} />
         </div>
       );
       rows.push(withNotes(row, `${hi}-${li}`, reviewing, at));
@@ -562,7 +613,7 @@ function Unified({ hunks, tokens, headers = true, picking, reviewing }: { hunks:
       if (l.kind !== "-") n++;
     });
   });
-  return <div className={`diff-u${picking ? " picking" : ""}${reviewing ? " reviewing" : ""}`} style={lnWidth(hunks)}>{chunked(rows)}</div>;
+  return <div className={`diff-u${picking ? " picking" : ""}${reviewing ? " reviewing" : ""}${reviewing?.review.threads ? " bubbles" : ""}`} style={lnWidth(hunks)}>{chunked(rows)}</div>;
 }
 
 /** Digits of the diff's highest line number (its last hunk's end), as `--ln`: on a narrow screen the number columns fit just that. */
@@ -765,7 +816,7 @@ function Split({ hunks, tokens, picking, reviewing }: { hunks: Hunk[]; tokens: T
     flush();
   });
   return (
-    <div className={`diff-split${picking ? " picking" : ""}${reviewing ? " reviewing" : ""}`} style={lnWidth(hunks)}>
+    <div className={`diff-split${picking ? " picking" : ""}${reviewing ? " reviewing" : ""}${reviewing?.review.threads ? " bubbles" : ""}`} style={lnWidth(hunks)}>
       {chunked(rows.map(([l, r], i) => {
         const row = (
           <div key={i} className="diff-split-row">
@@ -784,6 +835,8 @@ function Split({ hunks, tokens, picking, reviewing }: { hunks: Hunk[]; tokens: T
                   ) : (
                     <span className="tx">{code(x.text, x.toks)}</span>
                   )}
+                  {/* An unchanged line's bubble goes on its new half only. */}
+                  <Bubble reviewing={reviewing} at={x.cls || j === 1 ? x.at : undefined} />
                 </div>
               );
             })}

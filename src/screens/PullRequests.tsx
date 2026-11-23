@@ -1,5 +1,5 @@
 import { useMutationState, useQueryClient } from "@tanstack/react-query";
-import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import { useAction, useCommits, useOverview, usePendingBranches, usePr, usePrDiff, usePrFiles, useProjectPrefs, usePrs } from "../api/hooks";
 import { openExternal, rpc, RpcError } from "../api/transport";
@@ -14,7 +14,7 @@ import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ago, Busy, Empty, EmptyState, ErrorBox, Header, Loading, Markdown, MEDIA, MediaAsk, Modal, Seg, swipeProps } from "../components/ui";
 import { plural } from "../lib/format";
 import { useNav } from "../lib/nav";
-import { useStored } from "../lib/stored";
+import { useStored, useStoredFlag } from "../lib/stored";
 import { toast } from "../lib/toast";
 
 type Tab = "open" | "review" | "closed";
@@ -1012,8 +1012,15 @@ const NO_THREADS: PrThread[] = [];
 /** A conversation's line in a file's diff, in the version it numbers: `o12` in the base, `n12` in the head. */
 const lineKey = (t: PrThread) => `${t.old ? "o" : "n"}${t.line}`;
 
-/** The pull request's changed files and the diff of one, its conversations under their lines. Pressing a line number
- * starts a comment there; on hosts that take ranges, shift-click or a drag takes in more lines. */
+/** The selector of a conversation's line among the diff's rows (DiffView numbers them `data-o`, `data-n`). */
+const rowOf = (t: PrThread) => `[data-${t.old ? "o" : "n"}="${t.line}"]`;
+
+/** Below this width the code pane has no room for the conversations' margin: a conversation opens over the code. */
+const MARGIN_ROOM = 760;
+
+/** The pull request's changed files and the diff of one, its conversations in a margin beside their lines (over the
+ * code, one at a time, when the pane is narrow). Pressing a line number starts a comment there; on hosts that take
+ * ranges, shift-click or a drag takes in more lines. */
 function PrFiles({ pid, d, media, focus }: { pid: string; d: PrDetail; media: boolean; focus: PrThread | null }) {
   const host = useHost(pid);
   // Bitbucket's and Gitea's APIs put a comment on one line only.
@@ -1027,6 +1034,16 @@ function PrFiles({ pid, d, media, focus }: { pid: string; d: PrDetail; media: bo
   const [mode, setMode] = useStored<"unified" | "split">("gnx.prs.diff", "unified", (s) => (s === "split" ? "split" : "unified"), String);
   const [anyway, setAnyway] = useState(false);
   const [note, setNote] = useState<Note | null>(null);
+  // "Collapse all": the margin hidden, for every pull request.
+  const [hidden, setHidden] = useStoredFlag("gnx.prs.marginHidden");
+  const [active, setActive] = useState<string | null>(focus?.id ?? null);
+  const [wide, setWide] = useState(true);
+  const measure = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setWide(e.contentRect.width >= MARGIN_ROOM));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const post = useAction("prs.lineComment", { invalidate: [["pr", pid, d.number]], success: `Comment posted to ${host}` });
   const byFile = useMemo(() => {
     const m = new Map<string, PrThread[]>();
@@ -1039,30 +1056,52 @@ function PrFiles({ pid, d, media, focus }: { pid: string; d: PrDetail; media: bo
     for (const t of here) if (t.line != null && !t.outdated) m.set(lineKey(t), [...(m.get(lineKey(t)) ?? []), t]);
     return m;
   }, [here]);
-  // Lines the diff draws, so the conversations on others (outdated, or out of its hunks) show above it.
+  // Lines the diff draws, in its order, so the conversations on others (outdated, or out of its hunks) show above it.
   const drawn = useMemo(() => {
-    const keys = new Set<string>();
+    const order = new Map<string, number>();
     for (const h of diff.data ?? []) {
       let [o, n] = [h.oldStart, h.newStart];
       for (const l of h.lines) {
-        if (l.kind !== "+") keys.add(`o${o++}`);
-        if (l.kind !== "-") keys.add(`n${n++}`);
+        if (l.kind !== "+") order.set(`o${o++}`, order.size);
+        if (l.kind !== "-") order.set(`n${n++}`, order.size);
       }
     }
-    return keys;
+    return order;
   }, [diff.data]);
-  const elsewhere = diff.data ? here.filter((t) => t.line == null || t.outdated || !drawn.has(lineKey(t))) : [];
-  // The conversation picked in the conversation list, brought into view once its file's diff is drawn.
+  // The conversations on drawn lines, in the diff's order: the margin's cards, and what the arrows step through.
+  const placed = useMemo(
+    () => here.filter((t) => t.line != null && !t.outdated && drawn.has(lineKey(t))).sort((a, b) => drawn.get(lineKey(a))! - drawn.get(lineKey(b))!),
+    [here, drawn],
+  );
+  const elsewhere = diff.data ? here.filter((t) => !placed.includes(t)) : [];
+  // The conversation picked (in the conversation list, or with the arrows), brought into view once its file's diff is
+  // drawn: its line, or its own box above the diff.
   const [toFocus, setToFocus] = useState(focus?.id);
   useEffect(() => {
     if (!toFocus || !diff.data) return;
-    const el = document.getElementById(`pr-thread-${toFocus}`);
+    const t = placed.find((x) => x.id === toFocus);
+    const el = t ? document.querySelector(`.pr-code ${rowOf(t)}`) : document.getElementById(`pr-thread-${toFocus}`);
     if (!el) return;
     el.scrollIntoView({ block: "center" });
     // Again once the lines above it are laid out: off screen they only had an estimated height.
     requestAnimationFrame(() => el.scrollIntoView({ block: "center" }));
     setToFocus(undefined);
-  }, [toFocus, diff.data, anyway]);
+  }, [toFocus, diff.data, anyway, placed]);
+
+  /** Opens a conversation: in the margin, which a collapsed margin comes back for (and stays), or over the code when
+   * the pane is narrow. `scroll` brings its line into view. */
+  const pick = (id: string | null, scroll = false) => {
+    setActive(id);
+    if (id && wide && hidden) setHidden(false);
+    if (id && scroll) setToFocus(id);
+  };
+  // The arrows step through the open conversations, from the picked one.
+  const from = placed.findIndex((t) => t.id === active);
+  const next = placed.slice(from + 1).find((t) => !t.resolved);
+  const prev = [...(from < 0 ? placed : placed.slice(0, from))].reverse().find((t) => !t.resolved);
+  const open = placed.filter((t) => !t.resolved);
+  const shown = wide ? undefined : placed.find((t) => t.id === active);
+  const lineThreads = (at: DiffAt) => [...(at.kind !== "+" ? (onLines.get(`o${at.old}`) ?? []) : []), ...(at.kind !== "-" ? (onLines.get(`n${at.new}`) ?? []) : [])];
 
   const at = `${d.baseSha}...${d.headSha}`;
   const picked = note && file && note.path === file.path && note.drawn === at ? { from: note.from, to: note.to } : null;
@@ -1093,17 +1132,28 @@ function PrFiles({ pid, d, media, focus }: { pid: string; d: PrDetail; media: bo
     ranges,
     picked,
     onPick: (from, to) => file && setNote((n) => ({ path: file.path, drawn: at, from, to, text: n?.path === file.path ? n.text : "" })),
-    below: (at) => {
-      const ts = [...(at.kind !== "+" ? (onLines.get(`o${at.old}`) ?? []) : []), ...(at.kind !== "-" ? (onLines.get(`n${at.new}`) ?? []) : [])];
-      const writing = note && picked && picked.to.hunk === at.hunk && picked.to.i === at.i;
-      if (!ts.length && !writing) return null;
-      return (
-        <div className="col" style={{ gap: 8 }}>
-          {ts.map((t) => <ThreadView key={t.id} pid={pid} number={d.number} t={t} media={media} inline />)}
-          {writing && <NoteForm host={host} note={note} ranges={ranges} busy={post.isPending} suggestion={suggestion} onText={(text) => setNote({ ...note, text })} onCancel={() => setNote(null)} onSend={send} />}
+    below: (at) =>
+      note &&
+      picked &&
+      picked.to.hunk === at.hunk &&
+      picked.to.i === at.i && (
+        <div className="col">
+          <NoteForm host={host} note={note} ranges={ranges} busy={post.isPending} suggestion={suggestion} onText={(text) => setNote({ ...note, text })} onCancel={() => setNote(null)} onSend={send} />
         </div>
-      );
+      ),
+    threads: placed.length
+      ? (at) => {
+          const ts = lineThreads(at);
+          return ts.length ? { count: ts.length, resolved: ts.every((t) => t.resolved), on: ts.some((t) => t.id === active) } : null;
+        }
+      : undefined,
+    onThreads: (at) => {
+      const ts = lineThreads(at);
+      // Pressed again, the picked conversation's line lets it go.
+      if (ts.some((t) => t.id === active)) pick(null);
+      else pick((ts.find((t) => !t.resolved) ?? ts[0])?.id ?? null);
     },
+    margin: wide && !hidden && placed.length > 0 && <PrMargin pid={pid} number={d.number} threads={placed} active={active} media={media} mode={mode} onPick={(id) => pick(id)} />,
   };
 
   if (!d.headSha) return <EmptyState icon="pr" title="Couldn't read the changes">{host} named no head commit for this pull request.</EmptyState>;
@@ -1115,10 +1165,10 @@ function PrFiles({ pid, d, media, focus }: { pid: string; d: PrDetail; media: bo
     <section className="pr-files" aria-label="Files changed">
       <nav className="pr-files-list" aria-label="Changed files">
         {list.map((f) => (
-          <PrFileRow key={f.path} f={f} active={f === file} threads={byFile.get(f.path)?.length ?? 0} onPick={() => { setSel(f.path); setAnyway(false); }} />
+          <PrFileRow key={f.path} f={f} active={f === file} threads={byFile.get(f.path)?.length ?? 0} onPick={() => { setSel(f.path); setAnyway(false); setActive(null); }} />
         ))}
       </nav>
-      <div className="pr-code">
+      <div className="pr-code" ref={measure}>
         <div className="code-file pr-code-bar">
           <span className="code-path mono ellipsis grow" data-tip={file.from ? `${file.from} → ${file.path}` : file.path} data-tip-overflow>
             {file.from && <span className="faint">{file.from} → </span>}
@@ -1126,6 +1176,16 @@ function PrFiles({ pid, d, media, focus }: { pid: string; d: PrDetail; media: bo
             <b>{file.path.slice(cut + 1)}</b>
           </span>
           <span className="hint ellipsis hide-narrow">{ranges ? "Click or drag line numbers, or a hunk's Comment, to comment" : "Click a line number to comment"}</span>
+          {placed.length > 0 && (
+            <>
+              <StepButtons prev={prev && (() => pick(prev.id, true))} next={next && (() => pick(next.id, true))} />
+              {wide && (
+                <button className="btn btn-sm" onClick={() => { setHidden(!hidden); setActive(null); }}>
+                  {hidden ? "Expand all" : "Collapse all"}
+                </button>
+              )}
+            </>
+          )}
           <Seg<"unified" | "split"> label="Diff mode" value={mode} onChange={setMode} options={[{ value: "unified", label: "Unified" }, { value: "split", label: "Split" }]} />
         </div>
         {elsewhere.length > 0 && (
@@ -1141,6 +1201,147 @@ function PrFiles({ pid, d, media, focus }: { pid: string; d: PrDetail; media: bo
             <div className="empty" style={{ fontFamily: "var(--sans)" }}>{file.from ? `Renamed from ${file.from}, no other changes.` : "Binary file, or no changes to its text."}</div>
           )}
         </div>
+        {shown && (
+          <PrThreadPane
+            pid={pid}
+            number={d.number}
+            t={shown}
+            media={media}
+            count={open.includes(shown) ? `${open.indexOf(shown) + 1} / ${open.length}` : null}
+            prev={prev && (() => pick(prev.id, true))}
+            next={next && (() => pick(next.id, true))}
+            onClose={() => setActive(null)}
+          />
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** Up and down through a file's open conversations; an arrow with none that way is off. */
+function StepButtons({ prev, next }: { prev?: () => void; next?: () => void }) {
+  return (
+    <>
+      <button className="btn btn-ghost btn-icon btn-sm" aria-label="Previous conversation" data-tip="Previous conversation" disabled={!prev} onClick={prev}>
+        <Icon name="chevronUp" size={14} />
+      </button>
+      <button className="btn btn-ghost btn-icon btn-sm" aria-label="Next conversation" data-tip="Next conversation" disabled={!next} onClick={next}>
+        <Icon name="chevronDown" size={14} />
+      </button>
+    </>
+  );
+}
+
+/** The conversations on a file's drawn lines, in a margin beside the diff, each level with its line where it can be:
+ * the picked one open, the others as their first lines, the resolved ones folded. A card that would cover the one above
+ * moves down; the picked one keeps its line and moves the ones above it up. `mode` redraws the lines it lines up with. */
+function PrMargin({ pid, number, threads, active, media, mode, onPick }: { pid: string; number: number; threads: PrThread[]; active: string | null; media: boolean; mode: string; onPick: (id: string) => void }) {
+  const rail = useRef<HTMLElement>(null);
+  useLayoutEffect(() => {
+    const el = rail.current;
+    const lines = el?.previousElementSibling;
+    if (!el || !lines) return;
+    const place = () => {
+      const cards = [...el.children] as HTMLElement[];
+      const origin = el.getBoundingClientRect().top;
+      const want = cards.map((c) => (lines.querySelector(c.dataset.row!)?.getBoundingClientRect().top ?? origin) - origin);
+      const h = cards.map((c) => c.offsetHeight);
+      const gap = 8;
+      // Each card at its line or under the one before; the picked one at its line, the ones above moving up only when
+      // they would cover it, the ones below it after it. No room above it: all from the top down instead.
+      const down = (from: number, tops: number[]) => {
+        for (let i = from; i < cards.length; i++) tops[i] = Math.max(want[i], i ? tops[i - 1] + h[i - 1] + gap : 0);
+        return tops;
+      };
+      const on = cards.findIndex((c) => c.dataset.on);
+      let tops = down(0, [...want]);
+      if (on >= 0) {
+        tops[on] = want[on];
+        down(on + 1, tops);
+        for (let i = on - 1; i >= 0; i--) tops[i] = Math.min(tops[i], tops[i + 1] - h[i] - gap);
+        if (tops[0] < 0) tops = down(0, [...want]);
+      }
+      cards.forEach((c, i) => (c.style.top = `${tops[i]}px`));
+      el.style.minHeight = cards.length ? `${tops[cards.length - 1] + h[cards.length - 1] + gap}px` : "";
+    };
+    place();
+    // Again when lines wrap or get laid out, and when a card opens, folds or grows.
+    const ro = new ResizeObserver(place);
+    ro.observe(lines);
+    for (const c of el.children) ro.observe(c);
+    return () => ro.disconnect();
+  }, [threads, active, mode]);
+  // The picked card comes into view, its line beside it.
+  useEffect(() => {
+    rail.current?.querySelector("[data-on]")?.scrollIntoView({ block: "nearest" });
+  }, [active]);
+  return (
+    <aside ref={rail} className="pr-margin" aria-label="Conversations">
+      {threads.map((t) => {
+        const on = t.id === active;
+        return (
+          <div key={t.id} className={`pr-mcard${on ? " on" : ""}`} data-row={rowOf(t)} data-on={on || undefined}>
+            {on || t.resolved ? <ThreadView pid={pid} number={number} t={t} media={media} inline expand={on} /> : <ThreadCard t={t} media={media} onOpen={() => onPick(t.id)} />}
+          </div>
+        );
+      })}
+    </aside>
+  );
+}
+
+/** A conversation in the margin until picked: who started it, when, the start of what they wrote, how many replies. */
+function ThreadCard({ t, media, onOpen }: { t: PrThread; media: boolean; onOpen: () => void }) {
+  const first = t.comments[0];
+  const replies = t.comments.length - 1;
+  return (
+    <article id={`pr-thread-${t.id}`} className="thread pr-card" onClick={onOpen}>
+      <button className="pr-card-head" aria-label={`Open the conversation${first ? ` started by ${first.author}` : ""}`}>
+        {first && <Avatar name={first.author} size={18} decorative />}
+        <span className="ellipsis" style={{ fontWeight: 500 }}>{first?.author}</span>
+        <span className="faint grow" style={{ fontSize: 12 }}>{first ? ago(first.createdAt) : ""}</span>
+      </button>
+      {first && (
+        <div className="pr-card-body">
+          <Markdown text={first.body} html={media} breaks />
+        </div>
+      )}
+      {replies > 0 && (
+        <span className="pr-card-foot">
+          <Icon name="comment" size={11} />
+          {replies === 1 ? "1 reply" : `${replies} replies`}
+        </span>
+      )}
+    </article>
+  );
+}
+
+/** A conversation over the code pane when the pane has no room for the margin (the whole screen on a phone): the
+ * lines it is on, its comments, the reply box kept at the bottom. Back, or Escape, returns to the diff where it was. */
+function PrThreadPane({ pid, number, t, media, count, prev, next, onClose }: { pid: string; number: number; t: PrThread; media: boolean; count: string | null; prev?: () => void; next?: () => void; onClose: () => void }) {
+  useEffect(() => {
+    // Not from a box being typed in: Escape there would throw its text away.
+    const key = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !(e.target as HTMLElement).closest("textarea, input")) onClose();
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [onClose]);
+  return (
+    <section className="pr-thread-pane" aria-label="Conversation">
+      <header className="hdr">
+        <button className="hdr-icon" aria-label="Back to the code" onClick={onClose}>
+          <Icon name="back" size={16} />
+        </button>
+        <div className="hdr-title">
+          <strong>Conversation</strong>
+          {count && <span className="muted mono">{count}</span>}
+        </div>
+        <div className="hdr-tools">
+          <StepButtons prev={prev} next={next} />
+        </div>
+      </header>
+      <div className="pr-thread-pane-body">
+        <ThreadView key={t.id} pid={pid} number={number} t={t} media={media} expand />
       </div>
     </section>
   );
@@ -1311,17 +1512,18 @@ function ReviewForm({ pid, d, onDone }: { pid: string; d: PrDetail; onDone: () =
   );
 }
 
-/** `inline`: drawn in the diff under its line, so without its file and code. `onShowCode` opens it in the files view. */
-function ThreadView({ pid, number, t, media, inline, onShowCode }: { pid: string; number: number; t: PrThread; media: boolean; inline?: boolean; onShowCode?: () => void }) {
+/** `inline`: drawn beside its line, so without its file and code. `expand` opens it even when resolved (resolved ones
+ * start folded). `onShowCode` opens it in the files view. */
+function ThreadView({ pid, number, t, media, inline, expand, onShowCode }: { pid: string; number: number; t: PrThread; media: boolean; inline?: boolean; expand?: boolean; onShowCode?: () => void }) {
   const host = useHost(pid);
   // Azure DevOps comments only take likes, Bitbucket's none.
   const emoji = host === "Azure DevOps" ? EMOJI.slice(0, 1) : host === "Bitbucket" ? [] : EMOJI;
   // Gitea's API can't resolve a conversation.
   const resolvable = t.resolvable && host !== "Gitea";
-  const [open, setOpen] = useState(!t.resolved);
+  const [open, setOpen] = useState(expand || !t.resolved);
   const [draft, setDraft] = useState("");
   const [picker, setPicker] = useState<string | null>(null);
-  useEffect(() => setOpen(!t.resolved), [t.resolved]);
+  useEffect(() => setOpen(expand || !t.resolved), [t.resolved, expand]);
   const inv = [["pr", pid, number]];
   const reply = useAction("prs.reply", { invalidate: inv });
   const comment = useAction("prs.comment", { invalidate: inv });

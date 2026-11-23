@@ -8898,6 +8898,7 @@ button.pr-status-row:hover > .grow {
   color: var(--muted);
 }
 .pr-code {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -8972,16 +8973,155 @@ button.pr-status-row:hover > .grow {
   line-height: 17px;
   text-align: center;
 }
-:is(.diff-row, .diff-half).noted {
+:is(.diff-row, .diff-half):is(.noted, .talk-on) {
   background-image: linear-gradient(color-mix(in srgb, var(--fg) 8%, transparent), color-mix(in srgb, var(--fg) 8%, transparent));
 }
-:is(.diff-row, .diff-half).noted > .ln {
+:is(.diff-row, .diff-half):is(.noted, .talk-on) > .ln {
   background: color-mix(in srgb, var(--fg) 16%, transparent);
   color: var(--fg);
 }
-.diff-row.noted > .ln:first-child,
-.diff-half.noted > .ln {
+.diff-row:is(.noted, .talk-on) > .ln:first-child,
+.diff-half:is(.noted, .talk-on) > .ln {
   box-shadow: inset 2px 0 0 var(--fg);
+}
+/* Lines with conversations: a bubble in a column before the numbers. Its cell comes last in the row (the rules on a
+   row's first number still hold) and is placed in the first column. */
+.diff-u.bubbles .diff-row {
+  grid-template-columns: 26px 52px 52px 20px minmax(0, 1fr);
+}
+.diff-split.bubbles .diff-half {
+  grid-template-columns: 26px 52px 20px minmax(0, 1fr);
+}
+.bq {
+  grid-area: 1 / 1;
+  display: flex;
+  justify-content: center;
+  padding-top: 2px;
+}
+.bub {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 16px;
+  padding: 0 3px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r-sm);
+  background: var(--panel);
+  color: var(--fg);
+  font: 600 10px/1 var(--sans);
+  cursor: pointer;
+}
+.bub:hover {
+  border-color: var(--fg);
+}
+.bub.done {
+  border-color: var(--line);
+  background: transparent;
+  color: var(--faint);
+}
+.bub[aria-pressed="true"] {
+  border-color: var(--fg);
+  background: var(--fg);
+  color: var(--bg);
+}
+/* The code of a line with conversations picks them. */
+:is(.diff-row, .diff-half):is(.talked, .talk-on) > .tx {
+  cursor: pointer;
+}
+/* The conversations beside the lines: each card level with its line (PrMargin sets the tops). */
+.diff-margined {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  min-height: 100%;
+}
+/* The cards line up with rows measured in script, and WebKit reports a skipped chunk's rows at its top: with the
+   margin, every chunk is laid out. */
+.diff-margined .diff-chunk {
+  content-visibility: visible;
+}
+.pr-margin {
+  position: relative;
+  border-left: 1px solid var(--line);
+  background: var(--ground);
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.pr-mcard {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+}
+.pr-mcard.on > .thread {
+  border-color: var(--fg);
+}
+.pr-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+.pr-card:hover {
+  border-color: var(--line2);
+}
+.pr-card-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+}
+/* Its first lines: the whole card opens it, so its links don't take the click. */
+.pr-card-body {
+  max-height: calc(1.5em * 3);
+  overflow: hidden;
+  color: var(--muted);
+  pointer-events: none;
+}
+.pr-card-body .md {
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.pr-card-body .md > :first-child {
+  margin-top: 0;
+}
+.pr-card-foot {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12px;
+  color: var(--faint);
+}
+/* One conversation over the code pane, when the pane has no room for the margin. */
+.pr-thread-pane {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  font-size: 13px;
+}
+.pr-thread-pane > .hdr {
+  border-top: 0;
+}
+.pr-thread-pane-body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px 0;
+}
+/* The reply box stays in reach under a long conversation. */
+.pr-thread-pane .thread > :last-child {
+  position: sticky;
+  bottom: 0;
+  background: var(--panel);
 }
 .thread-file {
   display: flex;
@@ -12625,6 +12765,19 @@ label.sheet-row {
   .diff-row,
   .diff-half {
     grid-template-columns: calc(var(--ln, 4) * 1ch + 5px) 12px minmax(0, 1fr);
+  }
+  :is(.diff-u, .diff-split).bubbles :is(.diff-row, .diff-half) {
+    grid-template-columns: 24px calc(var(--ln, 4) * 1ch + 5px) 12px minmax(0, 1fr);
+  }
+  .bq {
+    padding-top: 1px;
+  }
+  /* A phone gives a conversation the whole screen. */
+  .pr-thread-pane {
+    position: fixed;
+    z-index: 40;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
   }
   .diff-row .ln,
   .diff-half .ln {
