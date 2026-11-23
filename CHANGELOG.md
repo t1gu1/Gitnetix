@@ -14,6 +14,18 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (App)
+- Branch map tiles show the open pull request as a status dot and number, and the selected branch card has a PR and ticket row. The status is failing, changes, draft, ready or pending.
+- Pull request and ticket links from the branch map open in the app.
+- The pull request diff has a collapsible conversation margin.
+
+### Changed (App)
+- The last pick for a project is saved in the project's profile settings instead of view state. A project added to a profile takes the pick from another profile with the same path, and existing picks move into their projects on first load.
+- The branch map folds merged branches into one expandable line.
+
+### Fixed (App)
+- The skill marks overlay lines up with the textarea caret in the log input.
+
 ## [0.34.1] - 2026-11-23
 
 ### Changed (App)
