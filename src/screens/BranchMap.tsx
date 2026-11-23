@@ -4,7 +4,7 @@ import { createPortal } from "react-dom";
 
 import { useCleanupLeft } from "../lib/cleanups";
 import { useAction, useAgents, useCommits, useConfig, useFiles, useMapCommits, useOverviewProgress, usePrDetails, usePrs, useReleaseCommitLists, useReleaseCommits, useReleaseCounts, useTagV, useTicket } from "../api/hooks";
-import { openExternal, rpc } from "../api/transport";
+import { rpc } from "../api/transport";
 import type { BranchView, Commit, MapCommits, Overview, RebaseRun, ReleaseCount, ReleaseView } from "../api/types";
 import { Avatar } from "../components/Avatar";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
@@ -623,7 +623,7 @@ export function BranchMap({
   const prDetails = usePrDetails(pid, prNumbers);
   const prOf = (name: string): BranchPr | undefined => {
     const p = openPrs.get(name);
-    return p && { number: p.number, url: p.url, tone: prTone(p, prDetails.get(p.number)) };
+    return p && { number: p.number, tone: prTone(p, prDetails.get(p.number)) };
   };
   const keys = useKeys();
   const { label, v: tagV } = useTagV(pid);
@@ -1523,7 +1523,7 @@ function WipLines({ pid, b, enabled }: { pid: string; b: BranchView; enabled: bo
 }
 
 /** A branch's open pull request and its status (see `prTone`). */
-type BranchPr = { number: number; url: string; tone: PrTone };
+type BranchPr = { number: number; tone: PrTone };
 
 /**
  * One branch on the map: a box with a header row (its type, name and the state worth a tag) and one info row (its agent,
@@ -1714,7 +1714,7 @@ function TileView({
             ))}
           </span>
           {pr && (
-            <button className="map-pr" data-tip={`PR #${pr.number}, ${PR_TONE_LABEL[pr.tone]}. Click to open it.`} aria-label={`Open PR #${pr.number}, ${PR_TONE_LABEL[pr.tone]}`} onClick={() => openExternal(pr.url)}>
+            <button className="map-pr" data-tip={`PR #${pr.number}, ${PR_TONE_LABEL[pr.tone]}. Click to open it.`} aria-label={`Open PR #${pr.number}, ${PR_TONE_LABEL[pr.tone]}`} onClick={() => nav.go({ name: "prs", number: pr.number })}>
               <i className="pr-dot" data-tone={pr.tone} />
               PR #{pr.number}
             </button>
@@ -1972,7 +1972,7 @@ function SelectedCard({
 }) {
   // Folding or unfolding the card holds for every branch, across restarts.
   const [chosen, setFolded] = useStoredChoice("gnx.map.cardFolded");
-  const ticketUrl = useTicket(o.project.id, b.ticket ?? undefined).data?.url || undefined;
+  const ticketFound = !!useTicket(o.project.id, b.ticket ?? undefined).data;
   // Until then, on a phone the card starts folded, out of the map's way; picking another branch unfolds it.
   const [phone, setPhone] = useState(() => matchMedia("(max-width: 720px)").matches);
   const [was, setWas] = useState(b.name);
@@ -2056,7 +2056,7 @@ function SelectedCard({
       {(pr || b.ticket) && (
         <div className="map-card-keys">
           {pr && (
-            <button className="map-card-pr" aria-label={`Open PR #${pr.number}, ${PR_TONE_LABEL[pr.tone]}`} data-tip={`PR #${pr.number}, ${PR_TONE_LABEL[pr.tone]}. Click to open it.`} onClick={() => openExternal(pr.url)}>
+            <button className="map-card-pr" aria-label={`Open PR #${pr.number}, ${PR_TONE_LABEL[pr.tone]}`} data-tip={`PR #${pr.number}, ${PR_TONE_LABEL[pr.tone]}. Click to open it.`} onClick={() => nav.go({ name: "prs", number: pr.number })}>
               <span className="map-card-pr-n">#{pr.number}</span>
               <span className="map-card-pr-s">
                 <i className="pr-dot" data-tone={pr.tone} />
@@ -2066,8 +2066,8 @@ function SelectedCard({
             </button>
           )}
           {b.ticket &&
-            (ticketUrl ? (
-              <button className="map-card-key" aria-label={`Open ticket ${b.ticket}`} data-tip={`Ticket ${b.ticket}. Click to open it.`} onClick={() => openExternal(ticketUrl)}>
+            (ticketFound ? (
+              <button className="map-card-key" aria-label={`Open ticket ${b.ticket}`} data-tip={`Ticket ${b.ticket}. Click to open it.`} onClick={() => nav.go({ name: "tickets", key: b.ticket! })}>
                 <span className="map-card-pr-n">{b.ticket}</span>
                 Ticket
                 <Icon name="eye" size={12} className="map-card-open" />

@@ -1,7 +1,7 @@
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { useAction, useFixVersions, useOverview, useProjectPrefs, useProjects, useTagV, useTicketActivity, useTicketAssignees, useTicketComments, useTicketFields, useTicketStatuses, useTickets } from "../api/hooks";
+import { useAction, useFixVersions, useOverview, useProjectPrefs, useProjects, useTagV, useTicketActivity, useTicketAssignees, useTicketComments, useTicketFields, useTicketStatuses, useTicket, useTickets } from "../api/hooks";
 import { openExternal, rpc } from "../api/transport";
 import type { BranchView, FieldOption, PrSummary, Suggestion, Ticket } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
@@ -119,7 +119,10 @@ export function Tickets({ initial }: { initial?: string }) {
   const grouped = groups
     .map((g) => ({ ...g, items: visible.filter((t) => (group === "release" ? (open.some((r) => r.version === t.release) ? t.release : "") === g.id : t.status === g.id)) }))
     .filter((g) => g.items.length);
-  const t = all.find((x) => x.key === sel) ?? visible[0];
+  // A ticket opened from elsewhere (a branch's key) may sit outside the filtered list: fetch it on its own.
+  const listed = all.find((x) => x.key === sel);
+  const alone = useTicket(pid, listed ? undefined : sel);
+  const t = listed ?? alone.data ?? (alone.isLoading ? undefined : visible[0]);
   const unplanned = visible.filter((x) => !x.release && x.status !== "done").length;
   // Linear calls its sprints cycles; a Linear team with cycles off has none, so no toggle for it.
   const jira = q.data?.sources.includes("jira");
