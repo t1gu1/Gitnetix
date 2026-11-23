@@ -23,3 +23,12 @@ futures-util = "0.3"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 gitnetix-core = { path = "crates/core" }
 gitnetix-server = { path = "crates/server" }
+
+# Debug builds keep file and line for this workspace's code (panics, backtraces) and no debug info for dependencies: the
+# desktop binary drops from 531 MB to 128 MB and a rebuild after a gitnetix-core edit from 6.1 s to 4.1 s. A debugger can no
+# longer show variables; set `debug = true` here for a session that needs one.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false

@@ -7,7 +7,9 @@ description = "Release-centric Git client with AI agents"
 
 [lib]
 name = "gitnetix_lib"
-crate-type = ["staticlib", "cdylib", "rlib"]
+# Desktop only: staticlib and cdylib made every debug rebuild write a 1.5 GB .a and a 435 MB .so the desktop app never loads.
+# Before `bun run ios` or `bun run android`, set this to ["staticlib", "cdylib", "rlib"]: the Tauri CLI refuses mobile without them.
+crate-type = ["rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
