@@ -2158,12 +2158,22 @@ body.resizing .term {
   text-underline-offset: 3px;
 }
 /* Merged branches: small stations under their base, a check, the name and a MERGED tag; then "+N more" and the clean up. */
-.map-merged {
+/* A box's merged branches: one folded line on its small station, "Clean up" at its end; opened, a row each under it. */
+.map-merged-head {
   position: absolute;
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 10px;
   height: 24px;
+}
+.map-merged-fold,
+.map-merged {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  min-width: 0;
   padding: 0 4px;
   border: 0;
   border-radius: var(--r);
@@ -2172,25 +2182,37 @@ body.resizing .term {
   font-size: 12px;
   white-space: nowrap;
 }
+.map-merged-likely {
+  font-size: 11px;
+  color: var(--faint);
+}
+/* Its rows: the name under the line's words, the age at the right, as on the commits above. */
+.map-merged {
+  position: absolute;
+  gap: 8px;
+  padding: 0 0 0 22px;
+}
+.map-merged > .ellipsis {
+  flex: 0 1 auto;
+}
 .map-merged > .tag {
   flex: none;
   padding: 1px 6px;
 }
-.map-merged:hover {
+.map-merged > i {
+  flex: none;
+  margin-left: auto;
+  font: 11px var(--mono);
+  font-style: normal;
+  color: var(--faint);
+}
+:is(.map-merged-fold, .map-merged):hover,
+.map-merged-fold[aria-expanded="true"] {
   color: var(--fg);
 }
 .map-merged[aria-pressed="true"] {
   background: var(--sel);
   color: var(--fg);
-}
-.map-merged-foot {
-  position: absolute;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.map-clean-big {
-  height: 26px;
 }
 .map-more {
   height: 22px;

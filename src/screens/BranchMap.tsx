@@ -38,8 +38,6 @@ const isRoot = (b: BranchView) => b.role === "trunk" && !b.parent;
 const endsOnTag = (b: BranchView, listed: number) => !b.parent && !!b.lastTag && listed === commitRows(b);
 /** A count as a pill shows it: a whole history counted up to 1000 reads "999+". */
 const countLabel = (n: number) => (n >= 1000 ? "999+" : String(n));
-/** Merged branches listed under their base before "+N more". */
-const MERGED_SHOWN = 4;
 /** Shipped releases listed on the trunk before "+N earlier releases". */
 const SHIPPED_SHOWN = 10;
 /** The trunk: a hairline at TRUNK_X, shipped releases on it as stations PITCH apart (oldest on top), then the default branch. */
@@ -58,12 +56,13 @@ const big = (b: BranchView) => b.role === "release" || b.role === "trunk";
 /** Floating commits: this far under their box, one row each (and the "see all" and tag rows). */
 const FLOAT_TOP = 6;
 const ROW = 22;
-/** Merged branches: small stations under the commits, MERGED_ROW apart; their foot (more, clean up) after them. */
+/** Merged branches: one small station under the commits, folded to "N merged branches"; opened, a row each, MERGED_ROW apart. */
 const MERGED_TOP = 24;
-const MERGED_ROW = 26;
+const MERGED_ROW = 24;
+/** Commits hang this much further right when the merged line runs down past them, so their avatars clear it. */
+const RAIL_GAP = 6;
 /** Past this many tiles the map draws only those near the view: small maps keep them all, for the keyboard and screen readers. */
 const CULL_FROM = 200;
-const FOOT_H = 26;
 /** A shipped release's commits, unfolded under its station: two lines each, under the row's middle. */
 const SHIPPED_LIST_TOP = 14;
 const SHIPPED_COMMIT_H = 32;
@@ -168,17 +167,13 @@ export interface Tile {
   all: boolean;
   /** Height of the commits floating under the box (0: none). */
   list: number;
-  /** Merged branches hung under it as small stations, how many more there are, and the ones a clean up may delete. */
+  /** Merged branches listed under it (none while folded), and the ones a clean up may delete. */
   merged: BranchView[];
-  more: number;
   removable: BranchView[];
-  /** Every merged branch under it once "+N more" is open: what the search looks through. */
+  /** Every merged branch under it: the folded line counts them, and the search looks through them. */
   mergedAll: BranchView[];
-  /** Its first merged station's middle, and the top of the row under the last one (more, clean up); from the map's top. */
+  /** The merged line's station middle, from the map's top; its rows follow MERGED_ROW apart. */
   mergedY: number;
-  footY: number;
-  /** The foot holds "+N more", "Show fewer" or a clean up. */
-  foot: boolean;
 }
 
 export interface MapLayout {
@@ -280,15 +275,13 @@ function layoutMap(o: Overview, prefs: Pick<MapPrefs, "who" | "merged" | "behind
   const mergedOf = (b: BranchView) => (prefs.merged ? fam.kids(b.name).filter((k) => chip(k) && (prefs.who === "all" || mine(k))) : []);
   // Protected and checked-out branches stay put, and so do the ones only likely merged.
   const removableOf = (all: BranchView[]) => all.filter((c) => !c.protected && !c.checkedOut && !c.likelyMerged);
-  const shownMerged = (b: BranchView, all: BranchView[]) => (toggles.get(`merged:${b.name}`) ? all.length : Math.min(all.length, MERGED_SHOWN));
-  // The whole block: the box, its commits, its merged stations and their foot.
+  const shownMerged = (b: BranchView, all: BranchView[]) => (toggles.get(`merged:${b.name}`) ? all.length : 0);
+  // The whole block: the box, its commits, its merged line and the rows it opens to.
   const blockH = (b: BranchView) => {
     const all = mergedOf(b);
-    const shown = shownMerged(b, all);
-    const foot = all.length > shown || removableOf(all).length > 0;
     const top = boxH(b) + listH(b);
     if (!all.length) return top;
-    return top + MERGED_TOP + (shown - 1) * MERGED_ROW + 12 + (foot ? 4 + FOOT_H : 0);
+    return top + MERGED_TOP + shownMerged(b, all) * MERGED_ROW + 12;
   };
 
   const { all: shippedAll, earlier: shippedEarlier, rows } = shippedRows(o, prefs.shipped, toggles);
@@ -335,8 +328,7 @@ function layoutMap(o: Overview, prefs: Pick<MapPrefs, "who" | "merged" | "behind
     const mergedY = y + h + list + MERGED_TOP;
     const t: Tile = {
       b, d, x: colX(d), y, w: colW(d), h, a, ghost: ghost.has(b.name), open: list > 0, all: !!toggles.get(`all:${b.name}`), list,
-      merged: all.slice(0, shown), more: all.length - shown, removable, mergedAll: all,
-      mergedY, footY: mergedY + (shown - 1) * MERGED_ROW + 16, foot: all.length > shown || removable.length > 0,
+      merged: all.slice(0, shown), removable, mergedAll: all, mergedY,
     };
     at.set(b.name, t);
     tiles.push(t);
@@ -405,10 +397,10 @@ interface Hit {
   needs: [string, boolean][];
 }
 
-/** The space a tile takes on the map: its box, the commits floating under it, its merged stations and their foot (the
+/** The space a tile takes on the map: its box, the commits floating under it, its merged line and rows (the
  *  default branch's sit on the trunk, left of its box). */
 function extent(t: Tile, onTrunk: boolean) {
-  const bottom = Math.max(t.y + t.h + FLOAT_TOP + t.list, t.merged.length ? t.mergedY + t.merged.length * MERGED_ROW : 0, t.foot ? t.footY + MERGED_ROW : 0);
+  const bottom = Math.max(t.y + t.h + FLOAT_TOP + t.list, t.mergedAll.length ? t.mergedY + t.merged.length * MERGED_ROW + 12 : 0);
   return { left: onTrunk ? TRUNK_X : t.x, top: t.y, right: t.x + t.w, bottom };
 }
 
@@ -553,12 +545,12 @@ function MapUpdating({ pid }: { pid: string }) {
 }
 
 /** A section's "Clean up": a spinner and what is left while its cleanup runs in the background. `big`: an outlined button of its own. */
-function CleanupButton({ pid, section, title, onClick, text, big }: { pid: string; section: string; title: string; onClick: () => void; text?: string; big?: boolean }) {
+function CleanupButton({ pid, section, title, onClick, text }: { pid: string; section: string; title: string; onClick: () => void; text?: string }) {
   const left = useCleanupLeft(pid, section);
   const busy = left !== undefined;
   return (
-    <button className={big ? "btn map-clean-big" : "map-clean"} aria-label={busy ? `Cleaning up, ${branches(left)} left` : title} data-tip={busy ? `Deleting branches… ${branches(left)} left` : title} disabled={busy} aria-busy={busy || undefined} onClick={onClick}>
-      {busy ? <span className="spinner" /> : !text && <Icon name="brush" size={12} />}
+    <button className="map-clean" aria-label={busy ? `Cleaning up, ${branches(left)} left` : title} data-tip={busy ? `Deleting branches… ${branches(left)} left` : title} disabled={busy} aria-busy={busy || undefined} onClick={onClick}>
+      {busy ? <span className="spinner" /> : <Icon name="brush" size={12} />}
       {busy ? left : text}
     </button>
   );
@@ -677,6 +669,8 @@ export function BranchMap({
   const fetchOrigin = useAction("branches.fetch", { invalidate: [["overview", pid]], success: () => "Fetched origin" });
 
   // A filter hiding the selected branch: the map shows the checked-out one as selected instead.
+  // Where a box's commits start: further right when its merged line runs down past their avatars.
+  const floatX = (t: Tile) => (t.b.name === layout.root ? 14 : t.mergedAll.length ? 18 + RAIL_GAP : 18);
   const onMap = (n?: string) => !!n && (at.has(n) || tiles.some((t) => t.merged.some((m) => m.name === n)) || layout.shipped.some((x) => x.b?.name === n));
   const shown = onMap(selected) ? selected : o.currentBranch && at.has(o.currentBranch) ? o.currentBranch : o.defaultBranch;
   // The route: the checked-out branch's line, from the trunk's station to it.
@@ -1201,7 +1195,7 @@ export function BranchMap({
                 {trunk && <path d={`M${TRUNK_X} ${trunk.y + trunk.a}H${trunk.x}`} data-line={o.currentBranch ? "head" : undefined} />}
                 {edges.map((e, i) => <path key={i} d={e.d} data-line={e.cls || undefined} />)}
                 {/* A box's merged branches hang on a hairline dropping from its station; the default branch's sit on the trunk. */}
-                {tiles.map((t) => t.merged.length > 0 && t.b.name !== layout.root && <path key={`m${t.b.name}`} d={`M${t.x} ${t.y + t.a}V${t.mergedY + (t.merged.length - 1) * MERGED_ROW}`} />)}
+                {tiles.map((t) => t.mergedAll.length > 0 && t.b.name !== layout.root && <path key={`m${t.b.name}`} d={`M${t.x} ${t.y + t.a}V${t.mergedY}`} />)}
               </svg>
 
               {trunk && layout.shipped.length > 0 && (
@@ -1296,54 +1290,52 @@ export function BranchMap({
               {trunk && <span className="map-stn" data-main="" style={{ left: TRUNK_X, top: trunk.y + trunk.a }} />}
 
               {drawn.map((t) => {
-                if (!t.merged.length && !t.foot && !cleaning(`merged:${t.b.name}`)) return null;
+                const key = `merged:${t.b.name}`;
+                if (!t.mergedAll.length && !cleaning(key)) return null;
                 // The default branch's merged branches sit on the trunk; any other box's on the hairline under its station.
                 const sx = t.b.name === layout.root ? TRUNK_X : t.x;
+                const open = t.merged.length > 0;
+                const likely = t.mergedAll.filter((m) => m.likelyMerged).length;
+                const w = t.x + t.w - sx - 14;
                 return (
                   <Fragment key={`mg${t.b.name}`}>
-                    {t.merged.map((m, i) => (
-                      <Fragment key={m.name}>
-                        <span className="map-stn" data-small="" style={{ left: sx, top: t.mergedY + i * MERGED_ROW }} />
-                        <button
-                          className="map-merged"
-                          data-likely={m.likelyMerged || undefined}
-                          aria-pressed={m.name === shown}
-                          data-find-at={atHit?.b === m || undefined}
-                          aria-label={`Select ${m.name}, ${m.likelyMerged ? "likely merged" : "merged"}`}
-                          style={{ left: sx + 14, top: t.mergedY + i * MERGED_ROW - 12, maxWidth: t.x + t.w - sx - 14 }}
-                          onClick={() => select(m.name)}
-                          onContextMenu={(e) => actions.openMenu(target(m.name), e)}
-                        >
-                          <Icon name={m.likelyMerged ? "merged" : "check"} size={12} />
-                          <span className="mono ellipsis">{marked(m.name, qb, atHit?.b === m)}</span>
-                          <span className="tag">{m.likelyMerged ? "Likely merged" : "Merged"}</span>
+                    <span className="map-stn" data-small="" style={{ left: sx, top: t.mergedY }} />
+                    <div className="map-merged-head" style={{ left: sx + 14, top: t.mergedY - 12, width: w }}>
+                      {t.mergedAll.length > 0 && (
+                        <button className="map-merged-fold" aria-expanded={open} onClick={() => toggle(key, !open)}>
+                          <Icon name="check" size={12} />
+                          {branches(t.mergedAll.length, "merged branch")}
+                          <Icon name="chevronDown" size={12} className="chev" />
+                          {likely > 0 && <span className="map-merged-likely">· {likely} likely</span>}
                         </button>
-                      </Fragment>
+                      )}
+                      {(t.removable.length > 0 || cleaning(key)) && (
+                        <CleanupButton
+                          pid={pid}
+                          section={key}
+                          text="Clean up"
+                          title={`Delete the ${branches(t.removable.length, "merged branch")} under ${labelOf(t.b.name)}, locally and on origin`}
+                          onClick={() => onCleanup(t.b.name, labelOf(t.b.name), t.removable)}
+                        />
+                      )}
+                    </div>
+                    {t.merged.map((m, i) => (
+                      <button
+                        key={m.name}
+                        className="map-merged"
+                        data-likely={m.likelyMerged || undefined}
+                        aria-pressed={m.name === shown}
+                        data-find-at={atHit?.b === m || undefined}
+                        aria-label={`Select ${m.name}, ${m.likelyMerged ? "likely merged" : "merged"}`}
+                        style={{ left: sx + 14, top: t.mergedY + (i + 1) * MERGED_ROW - 12, width: w }}
+                        onClick={() => select(m.name)}
+                        onContextMenu={(e) => actions.openMenu(target(m.name), e)}
+                      >
+                        <span className="mono ellipsis">{marked(m.name, qb, atHit?.b === m)}</span>
+                        {m.likelyMerged && <span className="tag">Likely</span>}
+                        <i>{age(m.date)}</i>
+                      </button>
                     ))}
-                    {(t.foot || cleaning(`merged:${t.b.name}`)) && (
-                      <span className="map-merged-foot" style={{ left: sx + 14, top: t.footY }}>
-                        {t.more > 0 && (
-                          <button className="map-more" onClick={() => toggle(`merged:${t.b.name}`, true)}>
-                            +{t.more} more merged
-                          </button>
-                        )}
-                        {t.merged.length > MERGED_SHOWN && (
-                          <button className="map-more" onClick={() => toggle(`merged:${t.b.name}`, false)}>
-                            Show fewer
-                          </button>
-                        )}
-                        {(t.removable.length > 0 || cleaning(`merged:${t.b.name}`)) && (
-                          <CleanupButton
-                            big
-                            pid={pid}
-                            section={`merged:${t.b.name}`}
-                            text="Clean up merged"
-                            title={`Delete the ${branches(t.removable.length, "merged branch")} under ${labelOf(t.b.name)}, locally and on origin`}
-                            onClick={() => onCleanup(t.b.name, labelOf(t.b.name), t.removable)}
-                          />
-                        )}
-                      </span>
-                    )}
                   </Fragment>
                 );
               })}
@@ -1369,7 +1361,7 @@ export function BranchMap({
                     shippedTip={t.b.name === layout.root && layout.shippedAll[0] ? shippedName(layout.shippedAll[0]) : undefined}
                   />
                   {t.open && (
-                    <div className="map-float" style={{ left: t.x + (t.b.name === layout.root ? 14 : 18), top: t.y + t.h + FLOAT_TOP, width: t.w - (t.b.name === layout.root ? 14 : 18) }}>
+                    <div className="map-float" style={{ left: t.x + floatX(t), top: t.y + t.h + FLOAT_TOP, width: t.w - floatX(t) }}>
                       <TileCommits
                         pid={pid}
                         b={t.b}
