@@ -37,6 +37,8 @@ export interface NewItemDraft {
   from?: string;
   /** Tag to start from instead ("Create a branch from here" on a shipped tag); merges into the default branch. */
   tag?: string;
+  /** Commit to start at instead ("Create a branch from that commit" in a commit list); merges into `from`. `shipped`: a shipped release's commit. */
+  at?: { sha: string; subject: string; shipped?: boolean };
   ticket?: string;
   description?: string;
   /** A branch type, or "release" to cut a release instead. */

@@ -466,6 +466,10 @@ pub struct NewItem {
     pub release: String,
     /// Branch to start from and merge back into when there is no release (default branch when empty).
     pub from: Option<String>,
+    /// Commit to start at instead of the tip of `from` (or the release); the branch still merges into it.
+    pub at: Option<String>,
+    /// `at` is a shipped release's commit: the branch is marked so (see [`BranchMeta::from_shipped`]).
+    pub shipped: bool,
     pub kind: String,
     pub description: String,
     pub branch_name: Option<String>,
@@ -5589,6 +5593,12 @@ impl Gitnetix {
                 }
             },
         };
+        let from_shipped = start.starts_with("refs/tags/") || (req.shipped && req.at.is_some());
+        // A commit picked in a commit list: the branch starts there and still merges where `from` said.
+        let start = match req.at.as_deref() {
+            Some(sha) => check_sha(sha)?.to_string(),
+            None => start,
+        };
         // No kind sent: when AI names the branch, it picks the type too.
         let picked = type_of(&req.kind);
         let kind = picked.clone().unwrap_or_else(|| p.branch_types.first());
@@ -5630,7 +5640,7 @@ impl Gitnetix {
             worktree: worktree.clone(),
             description: Some(req.description.clone()),
             created_at: now(),
-            from_shipped: start.starts_with("refs/tags/"),
+            from_shipped,
         };
         // Saved before git makes the branch: a refresh while git works (a worktree checking out files) files it under its parent
         // at once, instead of under a guess that moves once the parent is saved.

@@ -413,6 +413,37 @@ async fn cm12_reset_onto_a_shipped_commit_starts_from_that_release() {
     assert_eq!(e.view("feat/debug").await["fork"], Value::Null, "back past the latest tag");
 }
 
+/// CM-13: "Create a branch from that commit" in a commit list. The branch starts at the commit and merges into the list's
+/// branch; from a shipped release's commit it is marked like a branch made from a tag. A bad commit id makes nothing.
+#[tokio::test]
+async fn cm13_create_a_branch_from_a_commit() {
+    let e = env().await;
+    commit_file(&e.repo, "a.txt", "a\n");
+    let inside = rev(&e.repo, "HEAD");
+    commit_file(&e.repo, "b.txt", "b\n");
+    sh(&e.repo, &["tag", "-a", "v1.0.0", "-m", "v1.0.0"]);
+    commit_file(&e.repo, "c.txt", "c\n");
+    sh(&e.repo, &["push", "-q", "--follow-tags", "origin", "main"]);
+    sh(&e.repo, &["switch", "-qc", "feat/a"]);
+    commit_file(&e.repo, "d.txt", "d\n");
+    let first = rev(&e.repo, "HEAD");
+    commit_file(&e.repo, "e.txt", "e\n");
+
+    e.call("items.create", json!({ "from": "feat/a", "at": first, "kind": "feat", "description": "", "branchName": "feat/b", "where": "switch" })).await;
+    assert_eq!(rev(&e.repo, "HEAD"), first);
+    let v = e.view("feat/b").await;
+    assert_eq!((v["parent"].as_str(), v["checkedOut"].as_bool(), v["fork"].clone()), (Some("feat/a"), Some(true), Value::Null), "{v}");
+
+    e.call("items.create", json!({ "from": "main", "at": inside, "shipped": true, "kind": "fix", "description": "", "branchName": "fix/old", "where": "switch" })).await;
+    assert_eq!(rev(&e.repo, "HEAD"), inside);
+    let v = e.view("fix/old").await;
+    assert_eq!((v["parent"].as_str(), v["fork"].clone()), (Some("main"), json!({ "tag": "v1.0.0", "sha": inside })), "{v}");
+
+    e.refused("items.create", json!({ "from": "main", "at": "not-a-sha", "kind": "fix", "description": "", "branchName": "fix/bad", "where": "switch" })).await;
+    e.refused("items.create", json!({ "from": "main", "at": "deadbeef", "kind": "fix", "description": "", "branchName": "fix/gone", "where": "switch" })).await;
+    assert_eq!(git_out(&e.repo, &["branch", "--list", "fix/bad", "fix/gone"]), "");
+}
+
 /// CM-03: a pushed branch reset back a commit from the commit list. The map suggests Force push: a plain push
 /// is refused, a forced one moves origin back too.
 #[tokio::test]

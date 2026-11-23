@@ -5,14 +5,15 @@ import type { BranchView, Commit } from "../api/types";
 import { ContextMenu, type Entry, type MenuItem } from "../components/ContextMenu";
 import { ErrorBox, Modal } from "../components/ui";
 import { plural } from "../lib/format";
+import { useNav } from "../lib/nav";
 import { copyToClipboard } from "../lib/toast";
 
 type ResetMode = "soft" | "mixed" | "hard";
 
 /**
- * The right-click menu of a branch's commits, and the dialogs it opens: copy, revert, cherry-pick onto the main checkout's
- * branch, the resets, tags. `list`: the branch's commits as shown, newest first, origin's unpulled ones included; what a reset
- * takes off the branch or brings back is counted from it. `base`: the base's name, for a reset to where the branch left it.
+ * The right-click menu of a branch's commits, and the dialogs it opens: copy, a new branch from the commit, revert, cherry-pick
+ * onto the main checkout's branch, the resets, tags. `list`: the branch's commits as shown, newest first, origin's unpulled
+ * ones included; what a reset takes off the branch or brings back is counted from it. `base`: the base's name, for a reset to where the branch left it.
  * A shipped release's commits (`shipped`) reset the main checkout's branch instead, to try that release.
  * Render `el`; `open` on a commit's contextmenu event, `reset` from a button of its own.
  */
@@ -44,6 +45,7 @@ export function useCommitMenu({
   shipped?: string;
   onReset?: () => void;
 }) {
+  const nav = useNav();
   const [menu, setMenu] = useState<{ x: number; y: number; c: Commit } | null>(null);
   const [reset, setReset] = useState<{ c: Commit; mode: ResetMode } | null>(null);
   const [deletingTag, setDeletingTag] = useState<string | null>(null);
@@ -80,8 +82,15 @@ export function useCommitMenu({
       { id: "hard", label: "Reset here · hard", icon: "trash", hint: needCheckout ?? "discard", danger: true, disabled: !!needCheckout, run: () => setReset({ c, mode: "hard" }) },
     ];
     const copy: MenuItem = { id: "copy", label: "Copy SHA", icon: "edit", hint: <span className="mono">{short}</span>, run: () => copyToClipboard(c.sha) };
+    // Every commit listed is in `branch`'s history (a shipped release's: the default branch's), so the new branch merges there.
+    const branchFrom: MenuItem = {
+      id: "branchFrom",
+      label: "Create a branch from that commit",
+      icon: "plus",
+      run: () => nav.openNewItem({ from: branch, at: { sha: c.sha, subject: c.subject, shipped: !!shipped } }),
+    };
     // The base's commit: only there to reset back past the whole branch.
-    if (c.base) return [copy, "sep", ...resets];
+    if (c.base) return [copy, branchFrom, "sep", ...resets];
     const tags: MenuItem[] = [
       { id: "tag", label: "Create tag…", icon: "tag", run: () => setTagging(c) },
       ...c.tags.map((t): MenuItem => ({ id: `deleteTag:${t}`, label: <>Delete tag <span className="mono">{t}</span>…</>, icon: "trash", danger: true, run: () => setDeletingTag(t) })),
@@ -95,9 +104,10 @@ export function useCommitMenu({
       run: () => pick.mutate({ projectId: pid, onto: current, sha: c.sha }),
     };
     // A shipped commit's resets move the checked-out branch, not the list's own: named above them.
-    if (shipped) return [copy, "sep", pickItem, "sep", ...(current ? [{ heading: <>Resets move <span className="mono">{current}</span></> }] : []), ...resets, "sep", ...tags];
+    if (shipped) return [copy, branchFrom, "sep", pickItem, "sep", ...(current ? [{ heading: <>Resets move <span className="mono">{current}</span></> }] : []), ...resets, "sep", ...tags];
     return [
       copy,
+      branchFrom,
       "sep",
       { id: "revert", label: "Revert commit", icon: "undo", hint: needLocal, disabled: !!needLocal, run: () => revert.mutate({ projectId: pid, branch, sha: c.sha }) },
       pickItem,

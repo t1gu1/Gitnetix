@@ -25,6 +25,7 @@ export function NewItem({ draft, min, onMinimize, onClose }: { draft: NewItemDra
     .filter((b) => b.exists && (b.role === "release" || b.role === "trunk" || b.name === draft.from))
     .sort((a, b) => (a.role === b.role ? 0 : a.role === "release" ? -1 : b.role === "release" ? 1 : a.role === "trunk" ? -1 : 1));
   const firstBase = () =>
+    draft.at?.sha ||
     (draft.release && open.find((r) => r.version === draft.release)?.branch) || draft.tag || draft.from || open[0]?.branch || ov.data?.defaultBranch || "";
   const { dialogs, setDialogs, branchTypes } = useProjectPrefs(pid);
   const tagV = useTagV(pid);
@@ -110,7 +111,12 @@ export function NewItem({ draft, min, onMinimize, onClose }: { draft: NewItemDra
   const createRelease = useAction("releases.create", { invalidate: [["overview", pid], ["projects"]], success: `Release ${tagV.label(v)} created` });
   const base = bases.find((b) => b.name === from);
   const fromTag = !!draft.tag && from === draft.tag;
-  const rel = open.find((r) => r.branch === from);
+  const at = draft.at && from === draft.at.sha ? draft.at : undefined;
+  // Where it starts, as the route names it; none until picked.
+  const start = base?.name ?? (at ? at.sha.slice(0, 7) : fromTag ? draft.tag : undefined);
+  // Started at a commit, it still merges into the branch the commit was picked on.
+  const into = at ? draft.from : from;
+  const rel = open.find((r) => r.branch === into);
 
   // A hook: called on every render, so above the release dialog's early return.
   const aiOn = useAiOn("branch");
@@ -232,14 +238,14 @@ export function NewItem({ draft, min, onMinimize, onClose }: { draft: NewItemDra
   // Switching brings the uncommitted changes along: with no name, AI names the branch after them.
   const wip = ov.data?.branches.find((b) => b.name === ov.data?.currentBranch)?.wip ?? 0;
   const nameFromWip = aiOn && !agent && where === "switch" && wip > 0;
-  const ready = !!(base || fromTag) && (agent ? !!desc.trim() : !!name.trim() || nameFromWip) && !create.isPending;
+  const ready = !!start && (agent ? !!desc.trim() : !!name.trim() || nameFromWip) && !create.isPending;
   const submit = async () => {
     const up = agent ? await uploads(files) : undefined;
     // The next new branch starts where this one went.
     setDialogs({ newWorktree: where === "worktree", newAgent: agent });
     create.mutate(
       // No name and no type clicked: AI picks the type when it names the branch.
-      { projectId: pid, release: rel?.version ?? "", from: rel ? undefined : from, kind: branch || chosen.current ? kind : "", description: agent ? desc : "", branchName: branch || undefined, ticket: ticket || undefined, where, startAgent: agent, files: up, ...(agent && pick) },
+      { projectId: pid, release: rel?.version ?? "", from: rel ? undefined : into, at: at?.sha, shipped: !!at?.shipped, kind: branch || chosen.current ? kind : "", description: agent ? desc : "", branchName: branch || undefined, ticket: ticket || undefined, where, startAgent: agent, files: up, ...(agent && pick) },
       {
         onSuccess: (r) => {
           revealBranch(pid, r.branch);
@@ -254,10 +260,10 @@ export function NewItem({ draft, min, onMinimize, onClose }: { draft: NewItemDra
   return (
     <Modal
       title={`New ${label}`}
-      sub={base || fromTag ? undefined : "Pick where it starts"}
+      sub={at ? <><span className="mono">{start}</span> {at.subject}</> : start ? undefined : "Pick where it starts"}
       route={
-        (base || fromTag) && (
-          <Route from={base ? base.name : draft.tag} to={branch || `${kind}/…`} label={agent ? "new worktree · agent" : where === "worktree" ? "new worktree" : "switch to it"} make wait />
+        start && (
+          <Route from={start} to={branch || `${kind}/…`} label={agent ? "new worktree · agent" : where === "worktree" ? "new worktree" : "switch to it"} make wait />
         )
       }
       ref={box}
@@ -320,6 +326,7 @@ export function NewItem({ draft, min, onMinimize, onClose }: { draft: NewItemDra
             search="Filter branches"
             value={from}
             options={[
+              ...(draft.at ? [{ value: draft.at.sha, label: `${draft.at.sha.slice(0, 7)} (commit)` }] : []),
               ...(draft.tag ? [{ value: draft.tag, label: `${draft.tag} (tag)` }] : []),
               ...bases.map((b) => {
                 const r = open.find((x) => x.branch === b.name);
