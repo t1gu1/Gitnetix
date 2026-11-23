@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.33.1] - 2026-11-22
+
 ### Added (Website)
 - The release notes demo now walks through four steps: choose a range, pick the changes to include, write the notes, then publish them or add them to CHANGELOG.md. Each change shows its PR or commit reference and linked tickets.
 
