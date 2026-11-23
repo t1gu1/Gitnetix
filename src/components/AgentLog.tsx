@@ -1410,12 +1410,11 @@ function SkillMarks({ box, children }: { box: RefObject<HTMLTextAreaElement | nu
     if (!el || !m) return;
     const sync = () => {
       const s = getComputedStyle(el);
-      // The padding box: clientWidth leaves out a scrollbar, which narrows the lines.
+      // Sized by the layout over the whole box (app.css), not from clientWidth: that rounds a box of fractional width,
+      // and a line at the edge then wraps apart from the caret's. The gutter keeps room for the box's scrollbar, which narrows the lines.
       Object.assign(m.style, {
-        top: `${el.clientTop}px`,
-        left: `${el.clientLeft}px`,
-        width: `${el.clientWidth}px`,
-        height: `${el.clientHeight}px`,
+        borderWidth: s.borderWidth,
+        scrollbarGutter: el.scrollHeight > el.clientHeight ? "stable" : "auto",
         padding: s.padding,
         fontFamily: s.fontFamily,
         fontSize: s.fontSize,

@@ -5751,6 +5751,8 @@ button.picker-act {
 }
 .skill-marks {
   position: absolute;
+  inset: 0;
+  border: 0 solid transparent;
   box-sizing: border-box;
   overflow: hidden;
   white-space: pre-wrap;
