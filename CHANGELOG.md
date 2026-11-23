@@ -14,6 +14,10 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Changed (App)
+- The Templates model picker reads its models from the installed command line tools, including `ollama list`, and caches them for an hour. A failed read falls back to the built-in list and retries after a minute.
+- The built-in model list has Fable 5.2 in place of 5.1.
+
 ## [0.34.0] - 2026-11-22
 
 ### Added (App)
