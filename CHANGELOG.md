@@ -14,6 +14,17 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (App)
+- Create a branch from a commit in the commit list with "Create a branch from that commit" in the commit menu. The branch starts at that commit and merges into the branch the commit was picked on.
+- Branches reset onto a shipped release's commit, or made from a tag, are marked as started from that release. The branch map draws their line out of that release and keeps them in view. The commit menu on a shipped release resets the checked-out branch onto that commit.
+
+### Changed (App)
+- Frontend tooling uses Bun instead of pnpm. Install dependencies and run scripts with `bun`, and `bun.lock` replaces the pnpm lockfiles.
+- Debug builds keep line tables only for the workspace, which cuts the desktop binary from 531 MB to 128 MB and a gitnetix-core rebuild from 6.1 s to 4.1 s. Set `debug = true` in the root Cargo.toml when you need a debugger. Before `bun run ios` or `bun run android`, restore ["staticlib", "cdylib", "rlib"] as the src-tauri library crate types.
+
+### Fixed (App)
+- Ctrl+arrow keys move the caret by word in text boxes and terminals instead of changing project.
+
 ## [0.33.1] - 2026-11-22
 
 ### Added (Website)
