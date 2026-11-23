@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-11-23
+
 ### Added (App)
 - Branch map tiles show the open pull request as a status dot and number, and the selected branch card has a PR and ticket row. The status is failing, changes, draft, ready or pending.
 - Pull request and ticket links from the branch map open in the app.
