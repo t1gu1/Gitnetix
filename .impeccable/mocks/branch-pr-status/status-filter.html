@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Branch PR status, mock 3: status line and filter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared.css">
+</head>
+<body>
+<div class="app">
+  <section class="map">
+    <header class="bar">
+      <h1>Branches</h1>
+      <span class="sub">gitnetix · 8 branches</span>
+      <div class="seg" role="group" aria-label="Filter by pull request status">
+        <button aria-pressed="false" data-filter="all">All <span class="n">8</span></button>
+        <button aria-pressed="true" data-filter="pending">Pending <span class="n">2</span></button>
+        <button aria-pressed="false" data-filter="changes">Changes <span class="n">1</span></button>
+        <button aria-pressed="false" data-filter="failing">Failing <span class="n">1</span></button>
+        <button aria-pressed="false" data-filter="ready">Ready <span class="n">1</span></button>
+        <button aria-pressed="false" data-filter="draft">Draft <span class="n">1</span></button>
+        <button aria-pressed="false" data-filter="none">No PR <span class="n">1</span></button>
+      </div>
+      <span class="spacer"></span>
+      <div class="seg" role="group" aria-label="Theme">
+        <button aria-pressed="true" data-theme="dark">Dark</button>
+        <button aria-pressed="false" data-theme="light">Light</button>
+      </div>
+    </header>
+
+    <div class="canvas">
+      <div class="trunk" style="top:0;bottom:0"></div>
+
+      <div class="stub" style="top:50px"></div>
+      <div class="tile off" data-state="none" style="top:20px">
+        <div class="row"><span class="name">main</span><span class="tags"><span class="tag inv">Default</span></span></div>
+        <div class="status"><i class="dot"></i>No pull request</div>
+      </div>
+
+      <div class="stub route" style="top:140px"></div>
+      <div class="tile current" data-state="pending" style="top:110px">
+        <div class="row"><span class="name">feat/branch-pr-status</span></div>
+        <div class="status"><i class="dot on"></i><span class="mono">#151</span>Pending review, checks running</div>
+      </div>
+
+      <div class="stub" style="top:230px"></div>
+      <div class="tile off" data-state="changes" style="top:200px">
+        <div class="row"><span class="name">fix/tile-overflow</span></div>
+        <div class="status c-warn"><i class="dot on"></i><span class="mono">#149</span>Changes requested</div>
+      </div>
+
+      <div class="stub" style="top:320px"></div>
+      <div class="tile off" data-state="ready" style="top:290px">
+        <div class="row"><span class="name">feat/worktree-agents</span></div>
+        <div class="status c-add"><i class="dot on"></i><span class="mono">#146</span>Ready to merge</div>
+      </div>
+
+      <div class="stub" style="top:410px"></div>
+      <div class="tile off" data-state="failing" style="top:380px">
+        <div class="row"><span class="name">chore/deps-bump</span></div>
+        <div class="status c-del"><i class="dot on"></i><span class="mono">#143</span>Checks failing</div>
+      </div>
+
+      <div class="stub" style="top:500px"></div>
+      <div class="tile" data-state="pending" style="top:470px">
+        <div class="row"><span class="name">spike/graph-zoom</span></div>
+        <div class="status"><i class="dot on"></i><span class="mono">#147</span>Pending review</div>
+      </div>
+
+      <div class="stub" style="top:590px"></div>
+      <div class="tile off" data-state="draft" style="top:560px">
+        <div class="row"><span class="name">feat/release-notes</span></div>
+        <div class="status"><i class="dot"></i><span class="mono">#140</span>Draft</div>
+      </div>
+
+      <div class="stub" style="top:680px"></div>
+      <div class="tile off" data-state="merged" style="top:650px">
+        <div class="row"><span class="name">old/ui-v1</span></div>
+        <div class="status"><i class="dot"></i><span class="mono">#98</span>Merged 3 weeks ago</div>
+      </div>
+
+      <aside class="legend">
+        <h3>Status line and filters</h3>
+        <p class="note">The line under each name gives the PR number and one plain status. The filter counts the branches in each state. Dimmed branches are outside the filter.</p>
+        <ol>
+          <li><i class="dot on"></i><div><b>Pending</b><span>Review asked, or checks still running. Neutral.</span></div></li>
+          <li><i class="dot on c-warn"></i><div><b>Changes</b><span>A reviewer asked for edits.</span></div></li>
+          <li><i class="dot on c-del"></i><div><b>Failing</b><span>A check run ended in failure.</span></div></li>
+          <li><i class="dot on c-add"></i><div><b>Ready</b><span>Approved, checks green, no open threads.</span></div></li>
+          <li><i class="dot"></i><div><b>Draft, merged, no PR</b><span>Shown without colour.</span></div></li>
+        </ol>
+      </aside>
+    </div>
+  </section>
+
+  <aside class="side">
+    <div>
+      <div class="branch">feat/branch-pr-status</div>
+      <div class="tags"><span class="tag inv">Checked out</span><span class="tag"><span class="mono">#151</span>Pending</span></div>
+    </div>
+
+    <section class="sec">
+      <h2 class="sec-h">Pull request</h2>
+      <div class="pr-title"><span class="mono">#151</span>Show PR status on branch tiles</div>
+      <div class="state"><i class="dot on"></i>Pending review <small>1 review requested, checks running</small></div>
+    </section>
+
+    <section class="sec">
+      <h2 class="sec-h">Checks</h2>
+      <div class="check"><span>build (linux)</span><span class="c-add mono">pass</span></div>
+      <div class="check"><span>lint</span><span class="c-add mono">pass</span></div>
+      <div class="check"><span>build (macos)</span><span class="muted mono">running</span></div>
+      <div class="check"><span>e2e</span><span class="muted mono">queued</span></div>
+    </section>
+
+    <section class="sec">
+      <h2 class="sec-h">Review</h2>
+      <dl class="kv">
+        <dt>Asked</dt><dd>@mira</dd>
+        <dt>Approvals</dt><dd>0 of 1</dd>
+        <dt>Threads</dt><dd>none open</dd>
+        <dt>Conflicts</dt><dd>none</dd>
+      </dl>
+    </section>
+
+    <button class="open">Open #151 on GitHub</button>
+  </aside>
+</div>
+<script>
+document.querySelectorAll('[data-theme]').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    document.body.classList.toggle('light', btn.dataset.theme === 'light');
+    document.querySelectorAll('[data-theme]').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b === btn));
+    });
+  });
+});
+document.querySelectorAll('[data-filter]').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var f = btn.dataset.filter;
+    document.querySelectorAll('[data-filter]').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b === btn));
+    });
+    document.querySelectorAll('.tile').forEach(function (t) {
+      t.classList.toggle('off', f !== 'all' && t.dataset.state !== f);
+    });
+  });
+});
+</script>
+</body>
+</html>

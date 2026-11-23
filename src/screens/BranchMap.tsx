@@ -3,8 +3,8 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type M
 import { createPortal } from "react-dom";
 
 import { useCleanupLeft } from "../lib/cleanups";
-import { useAction, useAgents, useCommits, useConfig, useFiles, useMapCommits, useOverviewProgress, useReleaseCommitLists, useReleaseCommits, useReleaseCounts, useTagV } from "../api/hooks";
-import { rpc } from "../api/transport";
+import { useAction, useAgents, useCommits, useConfig, useFiles, useMapCommits, useOverviewProgress, usePrDetails, usePrs, useReleaseCommitLists, useReleaseCommits, useReleaseCounts, useTagV, useTicket } from "../api/hooks";
+import { openExternal, rpc } from "../api/transport";
 import type { BranchView, Commit, MapCommits, Overview, RebaseRun, ReleaseCount, ReleaseView } from "../api/types";
 import { Avatar } from "../components/Avatar";
 import { ContextMenu, type MenuItem } from "../components/ContextMenu";
@@ -14,11 +14,13 @@ import { shownStatus, type ShownStatus } from "../lib/agentLog";
 import { ago, plural, stashCount } from "../lib/format";
 import { showKeys, useKeys } from "../lib/keys";
 import { useNav } from "../lib/nav";
+import { PR_TONE_LABEL, prTone, type PrTone } from "../lib/prStatus";
 import { lockTip, showRun, useRebasing } from "../lib/rebaseRuns";
 import { useStored, useStoredChoice } from "../lib/stored";
 import { copyToClipboard } from "../lib/toast";
 import type { BranchActions, BranchTarget } from "./BranchMenu";
 import { useCommitMenu } from "./CommitMenu";
+import { openPrOf } from "./PullRequests";
 
 /** Branches this many commits behind their base count as falling behind. */
 const BEHIND_LIMIT = 25;
@@ -606,6 +608,23 @@ export function BranchMap({
   filesButton?: (b: BranchView) => ReactNode;
 }) {
   const pid = o.project.id;
+  const prList = usePrs(pid);
+  const openPrs = useMemo(
+    () =>
+      new Map(
+        o.branches.flatMap((b) => {
+          const p = openPrOf(prList.data?.items, b.name);
+          return p ? [[b.name, p] as const] : [];
+        }),
+      ),
+    [o.branches, prList.data],
+  );
+  const prNumbers = useMemo(() => [...openPrs.values()].map((p) => p.number), [openPrs]);
+  const prDetails = usePrDetails(pid, prNumbers);
+  const prOf = (name: string): BranchPr | undefined => {
+    const p = openPrs.get(name);
+    return p && { number: p.number, url: p.url, tone: prTone(p, prDetails.get(p.number)) };
+  };
   const keys = useKeys();
   const { label, v: tagV } = useTagV(pid);
   const [prefs, setPrefs] = useMapPrefs();
@@ -1349,6 +1368,7 @@ export function BranchMap({
                     labelOf={labelOf}
                     selected={t.b.name === shown}
                     flags={flagsOf(t)}
+                    pr={prOf(t.b.name)}
                     q={qb}
                     hitAt={atHit?.b === t.b && !atHit.chip}
                     agent={agentOf(t.b)}
@@ -1426,6 +1446,7 @@ export function BranchMap({
               actions={actions}
               onFocus={onFocus}
               onStashes={onStashes}
+              pr={prOf(sel.name)}
               extra={filesButton?.(sel)}
             />
             {files?.(sel)}
@@ -1501,6 +1522,9 @@ function WipLines({ pid, b, enabled }: { pid: string; b: BranchView; enabled: bo
   );
 }
 
+/** A branch's open pull request and its status (see `prTone`). */
+type BranchPr = { number: number; url: string; tone: PrTone };
+
 /**
  * One branch on the map: a box with a header row (its type, name and the state worth a tag) and one info row (its agent,
  * uncommitted work and other facts, never commits). Its station sits on its left border where its line comes in, its "+"
@@ -1513,6 +1537,7 @@ function TileView({
   labelOf,
   selected,
   flags,
+  pr,
   q,
   hitAt,
   agent,
@@ -1530,6 +1555,8 @@ function TileView({
   labelOf: (n: string) => string;
   selected: boolean;
   flags: TileFlags;
+  /** The branch's open pull request, if any. */
+  pr?: BranchPr;
   q: string;
   hitAt: boolean;
   agent?: AgentInfo;
@@ -1677,13 +1704,21 @@ function TileView({
           {b.name === o.defaultBranch && !current && <span className="tag">Default</span>}
           {rel && <span className={rel.tag === "next" ? "tag inv" : "tag"}>{releaseTagLabel(rel.tag)}</span>}
         </span>
-        <span className="map-info">
-          {info.map((x, i) => (
-            <Fragment key={i}>
-              {i > 0 && " · "}
-              {x}
-            </Fragment>
-          ))}
+        <span className="map-foot">
+          <span className="map-info">
+            {info.map((x, i) => (
+              <Fragment key={i}>
+                {i > 0 && " · "}
+                {x}
+              </Fragment>
+            ))}
+          </span>
+          {pr && (
+            <button className="map-pr" data-tip={`PR #${pr.number}, ${PR_TONE_LABEL[pr.tone]}. Click to open it.`} aria-label={`Open PR #${pr.number}, ${PR_TONE_LABEL[pr.tone]}`} onClick={() => openExternal(pr.url)}>
+              <i className="pr-dot" data-tone={pr.tone} />
+              PR #{pr.number}
+            </button>
+          )}
         </span>
       </div>
       {/* Starts a branch off it, where its lines leave. */}
@@ -1918,6 +1953,7 @@ function SelectedCard({
   actions,
   onFocus,
   onStashes,
+  pr,
   extra,
 }: {
   o: Overview;
@@ -1929,11 +1965,14 @@ function SelectedCard({
   actions: BranchActions;
   onFocus: (b: string, item: FocusItem) => void;
   onStashes: (b?: string) => void;
+  /** The branch's open pull request, if any. */
+  pr?: BranchPr;
   /** After the suggested action, on its row. */
   extra?: ReactNode;
 }) {
   // Folding or unfolding the card holds for every branch, across restarts.
   const [chosen, setFolded] = useStoredChoice("gnx.map.cardFolded");
+  const ticketUrl = useTicket(o.project.id, b.ticket ?? undefined).data?.url || undefined;
   // Until then, on a phone the card starts folded, out of the map's way; picking another branch unfolds it.
   const [phone, setPhone] = useState(() => matchMedia("(max-width: 720px)").matches);
   const [was, setWas] = useState(b.name);
@@ -1977,7 +2016,6 @@ function SelectedCard({
       agent?.state === "waiting" || agent?.state === "limit" ? "c-warn" : undefined]);
   }
   if (b.stashes) rows.push(["Stashes", <button className="link-btn" onClick={() => onStashes(b.name)}>{stashCount(b.stashes)}</button>]);
-  if (b.ticket) rows.push(["Ticket", <span className="mono">{b.ticket}</span>]);
 
   // Its headline numbers, in the display face: how far it is from its base and what is uncommitted on it; for the default
   // branch, what the next release ships and how many are open.
@@ -2015,6 +2053,33 @@ function SelectedCard({
           <Icon name="chevronDown" size={14} className="chev" />
         </button>
       </div>
+      {(pr || b.ticket) && (
+        <div className="map-card-keys">
+          {pr && (
+            <button className="map-card-pr" aria-label={`Open PR #${pr.number}, ${PR_TONE_LABEL[pr.tone]}`} data-tip={`PR #${pr.number}, ${PR_TONE_LABEL[pr.tone]}. Click to open it.`} onClick={() => openExternal(pr.url)}>
+              <span className="map-card-pr-n">#{pr.number}</span>
+              <span className="map-card-pr-s">
+                <i className="pr-dot" data-tone={pr.tone} />
+                {PR_TONE_LABEL[pr.tone]}
+              </span>
+              <Icon name="eye" size={12} className="map-card-open" />
+            </button>
+          )}
+          {b.ticket &&
+            (ticketUrl ? (
+              <button className="map-card-key" aria-label={`Open ticket ${b.ticket}`} data-tip={`Ticket ${b.ticket}. Click to open it.`} onClick={() => openExternal(ticketUrl)}>
+                <span className="map-card-pr-n">{b.ticket}</span>
+                Ticket
+                <Icon name="eye" size={12} className="map-card-open" />
+              </button>
+            ) : (
+              <span className="map-card-key">
+                <span className="map-card-pr-n">{b.ticket}</span>
+                Ticket
+              </span>
+            ))}
+        </div>
+      )}
       {!folded && (
         <>
           {b.exists && (

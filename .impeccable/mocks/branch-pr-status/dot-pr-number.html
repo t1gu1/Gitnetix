@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Branch PR status, mock 4: dot and PR number</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="shared.css">
+</head>
+<body>
+<div class="app">
+  <section class="map">
+    <header class="bar">
+      <h1>Branches</h1>
+      <span class="sub">gitnetix · 9 branches · 6 with a pull request</span>
+      <span class="spacer"></span>
+      <div class="seg" role="group" aria-label="Theme">
+        <button aria-pressed="true" data-theme="dark">Dark</button>
+        <button aria-pressed="false" data-theme="light">Light</button>
+      </div>
+    </header>
+
+    <div class="canvas">
+      <div class="trunk" style="top:0;bottom:0"></div>
+
+      <div class="stub" style="top:50px"></div>
+      <div class="tile" style="top:20px">
+        <div class="row"><span class="name">main</span><span class="tags"><span class="tag inv">Default</span></span></div>
+        <div class="foot"><span class="info"><span>at v0.5.2</span></span></div>
+      </div>
+
+      <div class="stub" style="top:130px"></div>
+      <div class="tile" style="top:100px">
+        <div class="row"><span class="name">release/0.6.0</span><span class="tags"><span class="tag inv">Next</span></span></div>
+        <div class="foot"><span class="info"><span>9 ahead of main</span></span></div>
+      </div>
+
+      <div class="stub" style="top:210px"></div>
+      <div class="tile current" style="top:180px">
+        <div class="row"><span class="name">feat/branch-tree</span><span class="tags"><span class="tag inv">Checked out</span></span></div>
+        <div class="foot"><span class="info"><span>4 ahead</span><span>2 stashes</span></span></div>
+      </div>
+
+      <div class="stub route" style="top:290px"></div>
+      <div class="tile sel" style="top:260px">
+        <div class="row"><span class="name">feat/tree-keys</span><span class="tags"></span></div>
+        <div class="foot"><span class="info"><span>4 ahead</span></span><span class="pr"><i class="dot"></i>PR #148</span></div>
+      </div>
+
+      <div class="stub" style="top:370px"></div>
+      <div class="tile" style="top:340px">
+        <div class="row"><span class="name">fix/stale-remote</span><span class="tags"></span></div>
+        <div class="foot"><span class="info"><span>2 ahead, 2 behind</span><span>agent working</span></span><span class="pr"><i class="dot on c-del"></i>PR #147</span></div>
+      </div>
+
+      <div class="stub" style="top:450px"></div>
+      <div class="tile" style="top:420px">
+        <div class="row"><span class="name">feat/agent-pane</span><span class="tags"></span></div>
+        <div class="foot"><span class="info"><span>13 behind main</span></span><span class="pr"><i class="dot on c-del"></i>PR #151</span></div>
+      </div>
+
+      <div class="stub" style="top:530px"></div>
+      <div class="tile" style="top:500px">
+        <div class="row"><span class="name">feat/diff-tokens</span><span class="tags"></span></div>
+        <div class="foot"><span class="info"><span>3 ahead</span></span><span class="pr"><i class="dot draft"></i>PR #144</span></div>
+      </div>
+
+      <div class="stub" style="top:610px"></div>
+      <div class="tile" style="top:580px">
+        <div class="row"><span class="name">fix/long-names</span><span class="tags"></span></div>
+        <div class="foot"><span class="info"><span>1 ahead</span></span><span class="pr"><i class="dot on c-warn"></i>PR #149</span></div>
+      </div>
+
+      <div class="stub" style="top:690px"></div>
+      <div class="tile" style="top:660px">
+        <div class="row"><span class="name">feat/triage</span><span class="tags"></span></div>
+        <div class="foot"><span class="info"><span>2 ahead</span></span><span class="pr"><i class="dot on c-add"></i>PR #150</span></div>
+      </div>
+
+      <aside class="legend">
+        <h3>Pull request dot</h3>
+        <p class="note">The dot sits at the bottom right of each box, with the number of its open pull request. Colour marks only a failure, a conflict, or a request for changes.</p>
+        <ol>
+          <li><i class="dot on c-add"></i><div><b>Ready</b><span>Approved, checks passed, no conflict.</span></div></li>
+          <li><i class="dot on c-warn"></i><div><b>Changes requested</b><span>A reviewer asked for changes.</span></div></li>
+          <li><i class="dot on c-del"></i><div><b>Failing</b><span>A check failed, or the branch conflicts.</span></div></li>
+          <li><i class="dot"></i><div><b>Pending</b><span>Review requested or checks still running.</span></div></li>
+          <li><i class="dot draft"></i><div><b>Draft</b><span>Opened as a draft.</span></div></li>
+          <li><span class="dot-none"></span><div><b>No pull request</b><span>The box shows no dot.</span></div></li>
+        </ol>
+      </aside>
+    </div>
+  </section>
+
+  <aside class="side">
+    <div>
+      <div class="branch">feat/tree-keys</div>
+      <div class="tags"><span class="tag"><span class="mono">#148</span>Pending</span></div>
+    </div>
+
+    <section class="sec">
+      <h2 class="sec-h">Pull request</h2>
+      <div class="pr-title"><span class="mono">#148</span>Branch tree: keyboard navigation</div>
+      <div class="state"><i class="dot"></i>Pending <small>review requested, checks running</small></div>
+      <dl class="kv">
+        <dt>Into</dt><dd class="mono">release/0.6.0</dd>
+        <dt>Author</dt><dd>You</dd>
+        <dt>Opened</dt><dd>2 hours ago</dd>
+      </dl>
+    </section>
+
+    <section class="sec">
+      <h2 class="sec-h">Checks</h2>
+      <div class="check"><span class="ck"><i class="dot on"></i>lint</span><span class="muted mono">passed</span></div>
+      <div class="check"><span class="ck"><i class="dot on"></i>typecheck</span><span class="muted mono">passed</span></div>
+      <div class="check"><span class="ck"><i class="dot"></i>test (ubuntu-latest)</span><span class="muted mono">running</span></div>
+      <div class="check"><span class="ck"><i class="dot"></i>test (windows-latest)</span><span class="muted mono">queued</span></div>
+    </section>
+
+    <section class="sec">
+      <h2 class="sec-h">Reviews</h2>
+      <div class="check"><span class="ck"><i class="dot on"></i>Ana Moreau</span><span class="muted mono">approved</span></div>
+      <div class="check"><span class="ck"><i class="dot"></i>Jules Laurent</span><span class="muted mono">requested</span></div>
+    </section>
+
+    <section class="sec">
+      <h2 class="sec-h">Threads and conflicts</h2>
+      <div class="check"><span class="ck"><i class="dot"></i>Open threads</span><span class="muted mono">1 open</span></div>
+      <div class="check"><span class="ck"><i class="dot on"></i>Conflicts</span><span class="muted mono">none</span></div>
+    </section>
+
+    <button class="open">Open #148 on GitHub</button>
+  </aside>
+</div>
+<script>
+document.querySelectorAll('[data-theme]').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    document.body.classList.toggle('light', btn.dataset.theme === 'light');
+    document.querySelectorAll('[data-theme]').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b === btn));
+    });
+  });
+});
+</script>
+</body>
+</html>

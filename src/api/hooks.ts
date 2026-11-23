@@ -641,6 +641,18 @@ export const usePr = (projectId?: string, number?: number) =>
     retry: false,
   });
 
+/** [`usePr`] of several pull requests (the same queries), by number. */
+export const usePrDetails = (projectId: string | undefined, numbers: number[]) =>
+  useQueries({
+    queries: numbers.map((number) => ({
+      queryKey: ["pr", projectId, number],
+      queryFn: () => rpc<PrDetail>("prs.get", { projectId, number }),
+      enabled: !!projectId,
+      retry: false,
+    })),
+    combine: (rs) => new Map(numbers.map((n, i) => [n, rs[i].data])),
+  });
+
 /** What `prs.files` and `prs.diff` need of a pull request: its branches and the commits its host diffs. */
 const prRefs = (pr: PrDetail) => ({ number: pr.number, base: pr.base, head: pr.head, baseSha: pr.baseSha, headSha: pr.headSha });
 
@@ -663,6 +675,16 @@ export const usePrDiff = (projectId?: string, pr?: PrDetail, file?: FileChange) 
     enabled: !!projectId && !!pr?.headSha && !!file,
     staleTime: Infinity,
     retry: false,
+  });
+
+/** The ticket with key `key`, from the project's trackers; null when none has it. */
+export const useTicket = (projectId?: string, key?: string) =>
+  useQuery({
+    queryKey: ["ticket", projectId, key],
+    queryFn: () => rpc<Ticket | null>("tickets.get", { projectId, key }),
+    enabled: !!projectId && !!key,
+    retry: false,
+    staleTime: 5 * 60_000,
   });
 
 export const useTickets = (projectId?: string, mine = false, sprint = false) =>

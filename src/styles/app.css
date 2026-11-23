@@ -2374,6 +2374,59 @@ body.resizing .term {
 .map-info .mono {
   font-size: 12px;
 }
+/* The info row and, beside it, the branch's pull request. */
+.map-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.map-foot .map-info {
+  flex: 1;
+  min-width: 0;
+}
+.map-pr {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font: 500 12px/18px var(--mono);
+  cursor: pointer;
+}
+.map-pr:hover {
+  color: var(--fg);
+}
+/* A dot in the tone of a pull request's status: green, amber or red for ready, changes and failing, filled neutral for
+   pending, hollow for draft. */
+.pr-dot {
+  display: inline-block;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-right: 5px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  vertical-align: 1px;
+}
+.pr-dot[data-tone="ready"] {
+  border-color: var(--add-fg);
+  background: var(--add-fg);
+}
+.pr-dot[data-tone="changes"] {
+  border-color: var(--warn-fg);
+  background: var(--warn-fg);
+}
+.pr-dot[data-tone="fail"] {
+  border-color: var(--del-fg);
+  background: var(--del-fg);
+}
+.pr-dot[data-tone="pending"] {
+  border-color: var(--fg);
+  background: var(--fg);
+}
 .map-info-btn {
   padding: 0;
   border: 0;
@@ -2832,7 +2885,7 @@ button.map-line-chip[aria-disabled] {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
-  gap: 8px;
+  gap: 4px 8px;
 }
 .map-card-head > h3 {
   grid-column: 1;
@@ -2886,6 +2939,57 @@ button.map-line-chip[aria-disabled] {
 .map-card-eye {
   margin-left: 6px;
   vertical-align: -2px;
+}
+/* The branch's pull request and ticket: two compact boxes in a row, the value over its label. */
+.map-card-keys {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: -6px;
+}
+.map-card[data-folded] > .map-card-keys {
+  margin-top: -4px;
+}
+.map-card-pr,
+.map-card-key {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 8px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  background: transparent;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.2;
+  text-align: left;
+}
+.map-card-pr,
+button.map-card-key {
+  cursor: pointer;
+}
+.map-card-pr:hover,
+button.map-card-key:hover {
+  border-color: var(--fg);
+  color: var(--fg);
+}
+.map-card-pr-n {
+  font: 500 13px/1.2 var(--mono);
+  color: var(--fg);
+}
+.map-card-pr-s {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+/* Says the box opens its PR or ticket. */
+.map-card-open {
+  flex: none;
+  align-self: center;
+  margin-left: -2px;
+}
+.map-card-pr-s .pr-dot {
+  margin-right: 0;
 }
 /* Its headline numbers in the display face, a label under each. */
 .map-big {
