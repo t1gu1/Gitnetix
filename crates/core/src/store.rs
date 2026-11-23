@@ -96,6 +96,8 @@ pub struct Project {
     pub branch_types: BranchTypes,
     /// Where pull requests go when origin is a GitHub fork, as last picked: unset reads them on origin.
     pub pr_repo: Option<PrRepo>,
+    /// Terminal commands run at each moment ([`crate::hooks::MOMENTS`]), by moment id.
+    pub hooks: BTreeMap<String, crate::hooks::Hook>,
 }
 
 /// Pull requests read and opened on `to` (origin's or the repository it was forked from) while origin is `origin`:

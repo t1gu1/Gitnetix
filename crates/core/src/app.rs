@@ -17,6 +17,7 @@ use crate::cache::{key_of, CommitCache, LastCache, ViewCache};
 use crate::dictation::Audio;
 use crate::error::{Error, Result};
 use crate::events::Event;
+use crate::hooks;
 use crate::git::{ticket_keys, Blame, Blobs, BranchInfo, Commit, FileChange, FileCommit, Git, Hunk, LinePick, PrSquash, Side, Identity, StashInfo, TagInfo, WorktreeInfo};
 use crate::project_commands::{self, Scripts};
 use crate::providers::azure::{self, MergedPr};
@@ -4271,7 +4272,22 @@ impl Gitnetix {
     /// Uncommitted changes the checkout would overwrite refuse it (`WouldOverwrite`) unless `wip` says
     /// what to do with them: "stash" leaves them in a stash, "carry" stashes them, switches and puts
     /// them back. Returns the files left conflicted by carrying them (the stash is kept then).
+    /// Switch the main checkout to `branch` ([`Self::switch_to`]), then run the project's branch switched hook.
     pub async fn switch_branch(&self, project_id: &str, branch: &str, abort: bool, wip: Option<&str>) -> Result<Vec<String>> {
+        let p = self.store.project(project_id)?;
+        // Read only for a hook: switching to the branch already checked out runs none.
+        let hook = hooks::live(&p, "branchSwitched").is_some();
+        let from = if hook { self.git(&p).current_branch().await.ok().flatten() } else { None };
+        let out = self.switch_to(project_id, branch, abort, wip).await?;
+        if hook && from.as_deref() != Some(branch) {
+            let mut vars = hook_vars(&p, branch);
+            vars.push(("FROM", from.unwrap_or_default()));
+            hooks::spawn(&p, "branchSwitched", &top_path(&p), vec![vars]);
+        }
+        Ok(out)
+    }
+
+    async fn switch_to(&self, project_id: &str, branch: &str, abort: bool, wip: Option<&str>) -> Result<Vec<String>> {
         let p = self.store.project(project_id)?;
         if let Some(dir) = self.checkout_dir(&p, branch).await? {
             if dir != Path::new(&p.path) {
@@ -5194,6 +5210,9 @@ impl Gitnetix {
             p.releases.push(r.clone());
             Ok(())
         })?;
+        let mut vars = hook_vars(&p, &r.branch);
+        vars.push(("VERSION", r.version.clone()));
+        hooks::spawn(&p, "releaseCreated", &top_path(&p), vec![vars]);
         self.changed(project_id);
         Ok(r)
     }
@@ -5264,6 +5283,9 @@ impl Gitnetix {
             }
             Ok(())
         })?;
+        let mut vars = hook_vars(&p, &r.branch);
+        vars.extend([("VERSION", version.to_string()), ("TAG", tag.clone())]);
+        hooks::spawn(&p, "releasePublished", &top_path(&p), vec![vars]);
         self.changed(project_id);
         Ok(tag)
     }
@@ -5383,6 +5405,9 @@ impl Gitnetix {
             }
             Ok(())
         })?;
+        let mut vars = hook_vars(&p, branch);
+        vars.extend([("VERSION", version.to_string()), ("TAG", tag.clone())]);
+        hooks::spawn(&p, "releasePublished", &top_path(&p), vec![vars]);
         self.changed(project_id);
         Ok(Published { tag, pushed: origin, changelog })
     }
@@ -5645,6 +5670,7 @@ impl Gitnetix {
         }
         // An agent always gets its own worktree, so it keeps working while the main checkout moves on.
         let wt_path = (req.r#where == "worktree" || req.start_agent).then(|| worktree_path(&p, &branch));
+        let parent = release.as_ref().map(|r| r.branch.clone()).or_else(|| merge_into.clone()).unwrap_or_default();
         let worktree = wt_path.as_ref().map(|path| path.to_string_lossy().to_string());
         let meta = BranchMeta {
             kind: kind.clone(),
@@ -5692,6 +5718,13 @@ impl Gitnetix {
             }
             Ok(())
         })?;
+        let mut vars = hook_vars(&p, &branch);
+        vars.push(("PARENT", parent));
+        if let Some(w) = &worktree {
+            vars.push(("WORKTREE", w.clone()));
+            hooks::spawn(&p, "worktreeCreated", &cwd, vec![vars.clone()]);
+        }
+        hooks::spawn(&p, "branchCreated", &cwd, vec![vars]);
         let mut agent_session = None;
         if req.start_agent {
             let mut request = req.description.clone();
@@ -5765,7 +5798,8 @@ impl Gitnetix {
     /// the one on origin. Without `force`, refuses when it has commits not in its base.
     /// The default branch and branches the git host protects are never deleted.
     pub async fn delete_branch(&self, project_id: &str, branch: &str, force: bool, remote: bool) -> Result<()> {
-        let git = self.git(&self.store.project(project_id)?);
+        let p = self.store.project(project_id)?;
+        let git = self.git(&p);
         let plan = self.plan_delete(project_id, &DeleteRefs::read(&git).await?, branch, None, force, remote).await?;
         // Origin first: if the host refuses, the local branch is still there.
         if let Some(theirs) = &plan.theirs {
@@ -5775,6 +5809,7 @@ impl Gitnetix {
             git.delete_branch(branch, true).await?;
         }
         self.forget_branches(project_id, &git, &[branch.to_string()]).await?;
+        hooks::spawn(&p, "branchDeleted", &top_path(&p), vec![hook_vars(&p, branch)]);
         self.changed(project_id);
         Ok(())
     }
@@ -6072,6 +6107,8 @@ impl Gitnetix {
             }
         }
         self.forget_branches(project_id, &git, &deleted).await?;
+        // One after the other, not a shell per branch at once.
+        hooks::spawn(&p, "branchDeleted", &top_path(&p), deleted.iter().map(|b| hook_vars(&p, b)).collect());
         out.deleted = deleted;
         drop(cleaning);
         self.changed(project_id);
@@ -6578,6 +6615,11 @@ impl Gitnetix {
         // Last, once everything else landed, so a branch that can't go never holds up the push or the tag.
         let delete_error = if opts.delete_after { self.delete_branch(project_id, branch, false, true).await.err().map(|e| e.to_string()) } else { None };
         let deleted = opts.delete_after && delete_error.is_none();
+        if !already_merged {
+            let mut vars = hook_vars(&p, branch);
+            vars.push(("INTO", into.clone()));
+            hooks::spawn(&p, "branchMerged", &top_path(&p), vec![vars]);
+        }
         Ok(MergeResult { into, sha, already_merged, deleted, delete_error, switched, stayed, pushed, push_error, retagged, tag_error })
     }
 
@@ -6990,6 +7032,9 @@ impl Gitnetix {
             }
             Ok(())
         })?;
+        let mut vars = hook_vars(&p, branch);
+        vars.push(("WORKTREE", path.to_string_lossy().to_string()));
+        hooks::spawn(&p, "worktreeCreated", &path, vec![vars]);
         self.changed(project_id);
         Ok(path.to_string_lossy().to_string())
     }
@@ -7013,6 +7058,17 @@ impl Gitnetix {
             if !unpushed.trim().is_empty() {
                 return Err(Error::Invalid(format!("A submodule in {path} has commits that are not pushed. Push them first.")));
             }
+        }
+        // The one hook waited for: it runs in the worktree while its files are still there (to copy some out), and when
+        // it fails and stops on failure, the worktree stays.
+        if Path::new(path).exists() && hooks::live(&p, "worktreeRemoved").is_some() {
+            let branch = match p.branches.iter().find(|(_, m)| m.worktree.as_deref() == Some(path)) {
+                Some((b, _)) => b.clone(),
+                None => Git::new(path).current_branch().await.ok().flatten().unwrap_or_default(),
+            };
+            let mut vars = hook_vars(&p, &branch);
+            vars.push(("WORKTREE", path.to_string()));
+            hooks::wait(&p, "worktreeRemoved", Path::new(path), vars).await?;
         }
         let agents: Vec<String> = self.agents.list().into_iter().filter(|a| a.cwd == path).map(|a| a.id).collect();
         // Its shell first, so nothing it started keeps writing in the folder.
@@ -9141,6 +9197,11 @@ fn kind_of_branch(name: &str) -> Option<&'static str> {
 
 fn top_path(p: &Project) -> PathBuf {
     PathBuf::from(&p.path)
+}
+
+/// The variables every hook of `p` gets: its main checkout and the branch the moment is about.
+fn hook_vars(p: &Project, branch: &str) -> hooks::Vars {
+    vec![("MAIN", p.path.clone()), ("BRANCH", branch.to_string())]
 }
 
 /// `~` and `~/x` in a path the user typed, from the home folder.

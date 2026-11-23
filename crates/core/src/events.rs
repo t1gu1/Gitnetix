@@ -38,6 +38,9 @@ pub enum Event {
     RebaseRun { run: crate::app::RebaseRun },
     /// A new line in the Logs page.
     Log { entry: crate::log::Entry },
+    /// One of the project's hooks ran: its last runs on the Hooks page changed.
+    #[serde(rename_all = "camelCase")]
+    HookRan { project_id: String },
     /// Output of terminal `tab` of a checkout, base64; `end` counts its bytes so far.
     #[serde(rename_all = "camelCase")]
     ShellData { cwd: String, tab: u32, data: String, end: u64 },

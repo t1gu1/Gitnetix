@@ -17,6 +17,7 @@ import { useNav } from "../lib/nav";
 import { THEMES } from "../lib/themes";
 import { toast } from "../lib/toast";
 import { AISetupPanes } from "./AISetup";
+import { HooksPage } from "./Hooks";
 import { LogsPane } from "./Logs";
 import { Companion, GitProviders, Integrations, PhoneCard } from "./Connections";
 import { Animations, Appearance, DictationSection, GROUPS, Keys, ShortcutsSection } from "./Settings";
@@ -24,7 +25,7 @@ import { TemplatesPanes } from "./Templates";
 import { ProjectFilesPage, WorktreesSection } from "./WorktreePaths";
 
 /** Titles of the pages opened in place inside the panel, by id: the GROUPS sections, the project's pages and the logs. */
-const TITLES: Record<string, string> = Object.fromEntries([...GROUPS.flatMap(([, items]) => items.map(([id, label]) => [id, label])), ["logs", "Logs"], ["branchTypes", "Branch types"], ["projectFiles", "Worktree files"]]);
+const TITLES: Record<string, string> = Object.fromEntries([...GROUPS.flatMap(([, items]) => items.map(([id, label]) => [id, label])), ["logs", "Logs"], ["branchTypes", "Branch types"], ["projectFiles", "Worktree files"], ["hooks", "Hooks"]]);
 
 export function Menu({ onUnpair }: { onUnpair: () => void }) {
   const nav = useNav();
@@ -168,6 +169,7 @@ function SettingsPage({ id, cfg, project, open, back }: { id: string; cfg?: Conf
   if (page === "shortcuts") return <ShortcutsSection />;
   if (page === "branchTypes") return project ? <BranchTypesPage key={project.id} project={project} /> : null;
   if (page === "projectFiles") return project ? <ProjectFilesPage key={project.id} project={project} open={open} /> : null;
+  if (page === "hooks") return project ? <HooksPage key={project.id} project={project} open={open} /> : null;
   if (!cfg) return null;
   if (page === "worktrees") return <WorktreesSection cfg={cfg} open={open} />;
   if (page === "git") return <GitProviders cfg={cfg} />;
@@ -281,6 +283,7 @@ function ProjectSettings({ project: p, open }: { project: Project; open: (id: st
   const dialogSwitch = (k: Exclude<keyof DialogPrefs, "finish">, label: string, tip: string, restates?: boolean) => <SheetSwitch label={label} tip={tip} restates={restates} on={d[k]} flip={() => prefs.setDialogs({ [k]: !d[k] })} />;
   const types = prefs.branchTypes.list.map((t) => t.id);
   const paths = (l: string[]) => (l.length > 2 ? `${l.slice(0, 2).join(" ")} +${l.length - 2}` : l.join(" ") || "None");
+  const hooked = Object.values(prefs.hooks).filter((h) => !h.off && h.commands.length).length;
   return (
     <SheetBox className="sheet-project" title={p.name} sub="this project" path={p.path}>
       <div className="sheet-cols">
@@ -335,6 +338,8 @@ function ProjectSettings({ project: p, open }: { project: Project; open: (id: st
           {dialogSwitch("shipChangelog", "Changelog before tagging", "Let AI add the branch's changes to the changelog before creating a version tag")}
           {dialogSwitch("deleteOrigin", "Delete on origin too", "Also delete a deleted branch on origin", true)}
           {dialogSwitch("cleanupOrigin", "Clean up on origin too", "Also delete cleaned-up behind branches on origin")}
+          <SheetLabel tip="Terminal commands this project runs when Gitnetix creates, switches, merges or deletes a branch, creates or removes a worktree, or creates or tags a release.">Hooks</SheetLabel>
+          <SheetLink label="Commands" tip="Terminal commands run at each moment" value={hooked ? plural(hooked, "moment") : "None"} none={!hooked} onClick={() => open("hooks")} />
         </div>
       </div>
     </SheetBox>

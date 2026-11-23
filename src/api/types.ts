@@ -136,6 +136,8 @@ export interface Project {
   /** Paths linked instead: the worktree reads and writes the main checkout's. */
   worktreeLinks: string[];
   branchTypes: BranchTypes;
+  /** Terminal commands run at each moment, by moment id (see MOMENTS in screens/Hooks.tsx). */
+  hooks?: Record<string, Hook>;
   releases: Release[];
   branches: Record<string, BranchMeta>;
   ticketReleases: Record<string, string>;
@@ -1164,6 +1166,28 @@ export interface SprintReport {
   assignees: string[];
 }
 
+/** A moment's terminal commands, run one after the other; `keepGoing`: the next still run after one fails. */
+export interface Hook {
+  commands: string[];
+  keepGoing: boolean;
+  off: boolean;
+}
+
+/** One command of a hook's run: what it printed (the end only) and its exit code; null when it could not start or ran too long. */
+export interface HookStep {
+  command: string;
+  output: string;
+  code: number | null;
+}
+
+/** A moment's last run since the app started. */
+export interface HookRun {
+  at: string;
+  branch: string;
+  ok: boolean;
+  steps: HookStep[];
+}
+
 export type GitnetixEvent =
   | { type: "missed" }
   | { type: "agentLine"; sessionId: string; line: LogLine }
@@ -1177,6 +1201,7 @@ export type GitnetixEvent =
   | { type: "conflictResolving"; projectId: string; files: string[] }
   | { type: "rebaseRun"; run: RebaseRun }
   | { type: "log"; entry: LogEntry }
+  | { type: "hookRan"; projectId: string }
   | { type: "shellData"; cwd: string; tab: number; data: string; end: number }
   | { type: "shellExit"; cwd: string; tab: number }
   | { type: "dictationModel"; done: number; total: number }

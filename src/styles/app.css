@@ -15386,6 +15386,224 @@ label.sheet-row {
   }
 }
 
+/* Hooks (Hooks.tsx): one box, the moments on the left with their last run, the picked one on the right. */
+.hk {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr);
+  min-height: 620px;
+}
+@container (max-width: 720px) {
+  .hk {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+  }
+  .hk-rail {
+    border-right: 0;
+    border-bottom: 1px solid var(--line2);
+  }
+}
+.hk-rail {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-right: 1px solid var(--line2);
+}
+.hk-group {
+  display: flex;
+  flex-direction: column;
+}
+.hk-group > .hk-lab {
+  padding: 16px 16px 6px;
+}
+.hk-moment {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 7px 16px 8px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+.hk-moment:hover {
+  background: var(--raised);
+}
+.hk-moment[aria-current] {
+  background: var(--sel);
+}
+.hk-moment:focus-visible {
+  outline: 1px solid var(--fg);
+  outline-offset: -1px;
+}
+.hk-name.none {
+  color: var(--muted);
+}
+.hk-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.hk-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+.hk-dot.ok {
+  background: var(--add-fg);
+}
+.hk-dot.err {
+  background: var(--del-fg);
+}
+.hk-foot {
+  margin-top: auto;
+  padding: 12px 16px;
+  border-top: 1px solid var(--line);
+}
+.hk-det {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  padding: 18px 24px 24px;
+}
+.hk-h {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 28px;
+}
+.hk-h > h3 {
+  flex: 1;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.hk-on {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+.hk-kv {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  margin: 6px 0 8px;
+  border-top: 1px solid var(--line);
+}
+.hk-kv > dt,
+.hk-kv > dd {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+  margin: 0;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line);
+}
+.hk-kv > dt {
+  color: var(--muted);
+}
+.hk-lab {
+  padding-top: 10px;
+}
+.hk-cmds {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.hk-cmd,
+.hk-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.hk-add {
+  padding-left: 24px;
+}
+.hk-cmd > .input,
+.hk-add > .input {
+  font-size: 12px;
+}
+.hk-n {
+  flex: none;
+  width: 16px;
+  text-align: right;
+  font-size: 11px;
+  color: var(--faint);
+}
+.hk-sec {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 8px;
+}
+.hk-sec > .hk-lab {
+  padding-top: 0;
+}
+.hk-logs {
+  margin-left: auto;
+  color: var(--muted);
+}
+.hk-logs:hover {
+  color: var(--fg);
+}
+.hk-vars {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.hk-var {
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--fg);
+  font-size: 11px;
+  cursor: pointer;
+}
+.hk-var:hover {
+  background: var(--raised);
+}
+.hk-out {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px 12px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  background: var(--bg);
+  color: var(--muted);
+  font: 12px/19px var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.hk-prompt {
+  color: var(--faint);
+}
+.hk-line {
+  color: var(--fg);
+}
+.hk-fail {
+  color: var(--del-fg);
+}
+@media (pointer: coarse) {
+  .hk-moment {
+    min-height: 48px;
+  }
+}
+
 /* Branch types (BranchTypes.tsx, `sheet`): the shown types in the dialog's rows, a column each, then Not shown and Add a type side by side.
    Move, remove and an unset pin show on the row under the pointer; a set pin stays. */
 .bty {

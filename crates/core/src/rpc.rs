@@ -38,7 +38,8 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("projects.setHidden", "Close or reopen a project's tab (data kept)", "projectId, hidden"),
     ("projects.reorder", "Set the order of projects", "ids: string[]"),
     ("projects.setGenLang", "Language AI writes in for a project", "projectId, commit?, pr?, release?, ticket?"),
-    ("projects.setPrefs", "Remembered merge, commit and dialog options for a project", "projectId, merge?: {squash?, squashMessage?: branch|ai, rebase?, deleteBranch?, push?, resolveConflicts?}, commit?: {autoPush?}, dialogs?: {finish?: continue|merge, finishSwitch?, newWorktree?, newAgent?, shipPush?, shipChangelog?, deleteOrigin?, cleanupOrigin?, prMedia? (pictures and HTML in pull requests and tickets)}, worktreeFiles?: string[] (paths copied from the main checkout into new worktrees), worktreeLinks?: string[] (paths linked instead), branchTypes?: {list?: [{id, pinned?}] (the new branch dialogs' types in order, the first 12 shown; release = the new release dialog, always kept), oneRow? (6 shown), tagV?: bool|null (release tags start with v; null follows the project's existing tags)}, prRepo?: {origin, to}|null (a GitHub fork's pull requests go to `to`, owner/repo, while origin is `origin`), agent?: {provider?, model?, effort?, permission?, ultracode?} (the agent last picked here; empty = the profile's agent routing)"),
+    ("projects.setPrefs", "Remembered merge, commit and dialog options for a project", "projectId, merge?: {squash?, squashMessage?: branch|ai, rebase?, deleteBranch?, push?, resolveConflicts?}, commit?: {autoPush?}, dialogs?: {finish?: continue|merge, finishSwitch?, newWorktree?, newAgent?, shipPush?, shipChangelog?, deleteOrigin?, cleanupOrigin?, prMedia? (pictures and HTML in pull requests and tickets)}, worktreeFiles?: string[] (paths copied from the main checkout into new worktrees), worktreeLinks?: string[] (paths linked instead), branchTypes?: {list?: [{id, pinned?}] (the new branch dialogs' types in order, the first 12 shown; release = the new release dialog, always kept), oneRow? (6 shown), tagV?: bool|null (release tags start with v; null follows the project's existing tags)}, prRepo?: {origin, to}|null (a GitHub fork's pull requests go to `to`, owner/repo, while origin is `origin`), agent?: {provider?, model?, effort?, permission?, ultracode?} (the agent last picked here; empty = the profile's agent routing), hooks?: {[moment]: {commands: string[], keepGoing?, off?}} (terminal commands run at each moment: branchCreated, branchSwitched, branchMerged, branchDeleted, worktreeCreated, worktreeRemoved, releaseCreated, releasePublished; replaces them all)"),
+    ("hooks.runs", "Each hook's last run in a project since the app started, by moment: {at, branch, ok, steps: [{command, output, code}]}", "projectId"),
     ("workspace.overview", "Releases, their branches and repo state; `quick` skips history checks when nothing is cached", "projectId, quick?"),
     ("workspace.files", "Changed files of a branch, or of one commit when `commit` is given", "projectId, branch, mode: branch|wip|project, commit?"),
     ("workspace.diff", "Diff of one file; in wip mode `staged` picks the side; `commit` diffs that commit (`from` = the file's old path when that commit renamed it); `full` keeps the whole file", "projectId, branch, mode, path, staged?, commit?, from?, full?"),
@@ -526,6 +527,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
     let p = if p.is_null() { json!({}) } else { p };
     match method {
         "log.get" => to(crate::log::all()),
+        "hooks.runs" => to(crate::hooks::runs(&s(&p, "projectId")?)),
         "log.clear" => {
             crate::log::clear();
             ok()
@@ -712,6 +714,9 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
                 }
                 if let Some(a) = p.get("agent") {
                     pr.agent = serde_json::from_value(a.clone())?;
+                }
+                if let Some(h) = p.get("hooks") {
+                    pr.hooks = serde_json::from_value(h.clone())?;
                 }
                 Ok(())
             })?;

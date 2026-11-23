@@ -26,6 +26,8 @@ import type {
   Overview,
   PrDetail,
   PrFork,
+  Hook,
+  HookRun,
   PrSummary,
   ProjectSummary,
   ReleaseCount,
@@ -150,6 +152,9 @@ export function useEngineEvents() {
           case "log":
             qc.setQueryData<LogEntry[]>(["log"], (l) => l && [...l.slice(-1999), e.entry]);
             break;
+          case "hookRan":
+            qc.invalidateQueries({ queryKey: ["hookRuns", e.projectId] });
+            break;
           case "aiSignedOut":
             // Read by SignInPrompt.
             qc.setQueryData(["aiSignedOut"], e.provider);
@@ -179,7 +184,7 @@ const DIALOG_DEFAULTS: DialogPrefs = { finish: "merge", finishSwitch: true, newW
 
 const TYPES_DEFAULTS: BranchTypes = { list: DEFAULT_TYPES.map((id) => ({ id, pinned: false })), oneRow: false, tagV: null };
 
-type PrefsPatch = { merge?: Partial<MergePrefs>; commit?: Partial<CommitPrefs>; dialogs?: Partial<DialogPrefs>; worktreeFiles?: string[]; worktreeLinks?: string[]; branchTypes?: Partial<BranchTypes>; agent?: Route };
+type PrefsPatch = { merge?: Partial<MergePrefs>; commit?: Partial<CommitPrefs>; dialogs?: Partial<DialogPrefs>; worktreeFiles?: string[]; worktreeLinks?: string[]; branchTypes?: Partial<BranchTypes>; agent?: Route; hooks?: Record<string, Hook> };
 
 /** A project's remembered merge, commit and dialog options, agent, and worktree files and links. Changes show at once, then save. */
 export function useProjectPrefs(projectId?: string) {
@@ -196,7 +201,7 @@ export function useProjectPrefs(projectId?: string) {
           ...c,
           projects: c.projects.map((p) =>
             p.id === projectId
-              ? { ...p, merge: { ...MERGE_DEFAULTS, ...p.merge, ...patch.merge }, commit: { ...COMMIT_DEFAULTS, ...p.commit, ...patch.commit }, dialogs: { ...DIALOG_DEFAULTS, ...p.dialogs, ...patch.dialogs }, worktreeFiles: patch.worktreeFiles ?? p.worktreeFiles, worktreeLinks: patch.worktreeLinks ?? p.worktreeLinks, branchTypes: { ...TYPES_DEFAULTS, ...p.branchTypes, ...patch.branchTypes }, agent: patch.agent ?? p.agent }
+              ? { ...p, merge: { ...MERGE_DEFAULTS, ...p.merge, ...patch.merge }, commit: { ...COMMIT_DEFAULTS, ...p.commit, ...patch.commit }, dialogs: { ...DIALOG_DEFAULTS, ...p.dialogs, ...patch.dialogs }, worktreeFiles: patch.worktreeFiles ?? p.worktreeFiles, worktreeLinks: patch.worktreeLinks ?? p.worktreeLinks, branchTypes: { ...TYPES_DEFAULTS, ...p.branchTypes, ...patch.branchTypes }, agent: patch.agent ?? p.agent, hooks: patch.hooks ?? p.hooks }
               : p,
           ),
         },
@@ -214,6 +219,7 @@ export function useProjectPrefs(projectId?: string) {
     worktreeLinks: project?.worktreeLinks ?? [],
     branchTypes: { ...TYPES_DEFAULTS, ...project?.branchTypes },
     agent: project?.agent ?? {},
+    hooks: project?.hooks ?? {},
     setMerge: (merge: Partial<MergePrefs>) => save.mutate({ merge }),
     setCommit: (commit: Partial<CommitPrefs>) => save.mutate({ commit }),
     setDialogs: (dialogs: Partial<DialogPrefs>) => save.mutate({ dialogs }),
@@ -221,8 +227,12 @@ export function useProjectPrefs(projectId?: string) {
     setWorktreeLinks: (worktreeLinks: string[]) => save.mutate({ worktreeLinks }),
     setBranchTypes: (branchTypes: Partial<BranchTypes>) => save.mutate({ branchTypes }),
     setAgent: (agent: Route) => save.mutate({ agent }),
+    setHooks: (hooks: Record<string, Hook>) => save.mutate({ hooks }),
   };
 }
+
+/** The project's hooks' last runs since the app started, by moment; read again each time one runs. */
+export const useHookRuns = (projectId: string) => useQuery({ queryKey: ["hookRuns", projectId], queryFn: () => rpc<Record<string, HookRun>>("hooks.runs", { projectId }) });
 
 export const useConfig = () => useQuery({ queryKey: ["config"], queryFn: () => rpc<Config>("config.get") });
 export const useLog = () => useQuery({ queryKey: ["log"], queryFn: () => rpc<LogEntry[]>("log.get"), staleTime: Infinity });

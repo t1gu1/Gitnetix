@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en" data-theme="dark"><head><meta charset="utf-8">
+<title>Settings sub-page mocks: Hooks (project)</title>
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="base.css">
+<style>
+/* shared: env variables, a run's status, a command line */
+.var{display:flex;align-items:baseline;gap:10px;min-height:28px;border-bottom:1px solid var(--line)}
+.var:last-child{border-bottom:0}
+.var .mono{font-size:12px;color:var(--fg);flex:none;width:156px}
+.var .hint{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.run{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);white-space:nowrap}
+.go{display:inline-flex;align-items:center;gap:4px;color:var(--muted);font-size:12px;white-space:nowrap}
+.go:hover{color:var(--fg)}
+.ta.ph{color:var(--faint)}
+.out{border:1px solid var(--line2);border-radius:var(--r);background:var(--bg);padding:10px 12px;font:12px/19px var(--mono);color:var(--muted);white-space:pre;overflow:hidden}
+.out .p{color:var(--faint)}.out .c{color:var(--fg)}
+
+/* A */
+#mock-a .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:start}
+#mock-a .lab{display:flex;align-items:baseline;gap:8px}
+#mock-a .lab .run{margin-left:auto;letter-spacing:0;text-transform:none;font-weight:400}
+#mock-a .ta{height:78px}
+#mock-a .ta.short{height:42px}
+#mock-a .where{display:flex;align-items:center;gap:6px;padding:7px 0 6px;color:var(--faint);font-size:12px}
+#mock-a .where .mono{font-size:11px;color:var(--muted)}
+#mock-a .bottom{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;align-items:start}
+#mock-a .help{cursor:help;text-decoration:underline dotted var(--faint);text-underline-offset:4px}
+
+/* B */
+#mock-b .split{display:grid;grid-template-columns:300px 1fr;height:100%}
+#mock-b .rail{display:flex;flex-direction:column}
+#mock-b .rail .lab{padding:16px 16px 6px}
+#mock-b .li{min-height:48px;padding:6px 16px}
+#mock-b .li .nm{flex:1;min-width:0}
+#mock-b .li .sub{display:flex;align-items:center;gap:6px}
+#mock-b .li.empty .nm>span:first-child{color:var(--muted)}
+#mock-b .rail .foot{margin-top:auto;padding:12px 16px;border-top:1px solid var(--line);color:var(--faint);font-size:12px;line-height:17px}
+#mock-b .det{padding:20px 28px;display:flex;flex-direction:column;gap:16px;overflow:auto}
+#mock-b .det-h{display:flex;align-items:center;gap:12px}
+#mock-b .det-h strong{font:600 15px/20px var(--sans)}
+#mock-b .kv{display:grid;grid-template-columns:120px 1fr;border-top:1px solid var(--line)}
+#mock-b .kv>*{padding:7px 0;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;min-height:40px}
+#mock-b .kv>.kk{color:var(--muted)}
+#mock-b .cmds{display:flex;flex-direction:column;gap:6px}
+#mock-b .cmd{display:flex;align-items:center;gap:8px}
+#mock-b .cmd .n{width:16px;text-align:right;font:11px var(--mono);color:var(--faint)}
+#mock-b .cmd .field{flex:1;font:12px var(--mono)}
+#mock-b .cmd>svg{color:var(--faint)}
+#mock-b .cmd .x{color:var(--faint);display:grid;place-items:center;width:24px;height:24px}
+#mock-b .vars{display:flex;flex-wrap:wrap;gap:6px}
+#mock-b .vars .tag{font:11px var(--mono);letter-spacing:0;text-transform:none;height:22px;color:var(--fg)}
+#mock-b .sec{display:flex;align-items:baseline;gap:8px}
+#mock-b .sec .lab{padding:0}
+#mock-b .out{height:118px}
+
+/* C */
+#mock-c .flows{display:flex;flex-direction:column;gap:12px}
+#mock-c .flow{border:1px solid var(--line2);border-radius:var(--r)}
+#mock-c .flow-h{display:flex;align-items:baseline;gap:10px;padding:12px 16px 0}
+#mock-c .flow-h b{font-weight:600}
+#mock-c .route{display:grid;padding:10px 16px 0;position:relative}
+#mock-c .route::before{content:"";position:absolute;left:calc(16px + 4px);right:calc(16px + 4px);top:calc(10px + 4px);height:1.5px;background:var(--line2)}
+#mock-c .stop{position:relative;display:flex;flex-direction:column;gap:4px;padding-right:12px;min-width:0}
+#mock-c .stop .o{width:9px;height:9px;border-radius:50%;border:1.5px solid var(--line2);background:var(--panel)}
+#mock-c .stop .t{margin-top:6px;color:var(--faint);font-size:12px;line-height:16px}
+#mock-c .stop .t .mono{font-size:11px}
+#mock-c .stop.you .o{background:var(--fg);border-color:var(--fg)}
+#mock-c .stop.you .t{color:var(--fg);font-weight:500}
+#mock-c .stop.end{align-items:flex-end;padding-right:0;text-align:right}
+#mock-c .edit{display:grid;gap:0;padding:10px 16px 12px}
+#mock-c .ta{min-height:42px;padding:8px 12px}
+#mock-c .ta.ph{color:var(--faint)}
+#mock-c .meta{display:flex;align-items:center;gap:12px;margin-top:8px}
+#mock-c .meta .hint{white-space:nowrap}
+#mock-c .meta .mono{font-size:11px}
+</style>
+</head><body>
+
+<section class="mock" id="mock-a">
+  <div class="cap"><b>A · Sheet</b><span>A box per thing Gitnetix makes, a command box per moment, written as you would type it in a terminal. How hooks run and what they can read, under them.</span></div>
+  <div class="panel" data-title="Hooks" data-sub="lineage-app">
+    <div class="pg">
+      <p class="lead" style="margin-bottom:16px">Terminal commands Gitnetix runs when it creates or removes a branch or a worktree in this project. One command per line, run in order.</p>
+      <div class="grid">
+        <div class="box">
+          <div class="box-h"><h2>Branches</h2><span class="hint">1 of 2 set</span></div>
+          <div class="box-b">
+            <div class="lab">Created <span class="run"><span class="dot ok"></span>Ran 4 min ago</span></div>
+            <div class="ta">echo "branche créée : $GITNETIX_BRANCH"</div>
+            <div class="where"><i data-i="folder" data-s="12"></i>In <span class="mono">~/Projects/lineage-app</span></div>
+            <div class="lab">Deleted</div>
+            <div class="ta ph short">No commands</div>
+            <div class="where"><i data-i="folder" data-s="12"></i>In <span class="mono">~/Projects/lineage-app</span></div>
+          </div>
+        </div>
+        <div class="box">
+          <div class="box-h"><h2>Worktrees</h2><span class="hint">2 of 2 set</span></div>
+          <div class="box-b">
+            <div class="lab">Created <span class="run"><span class="dot err"></span>Failed 12:04, exit 1</span></div>
+            <div class="ta">cp -R "$GITNETIX_MAIN/fixtures" .
+bun install
+bun run db:seed</div>
+            <div class="where"><i data-i="folder" data-s="12"></i>In the new worktree, after its files are copied</div>
+            <div class="lab">Removed</div>
+            <div class="ta">cp .env.local "$GITNETIX_MAIN/.env.$GITNETIX_BRANCH"</div>
+            <div class="where"><i data-i="folder" data-s="12"></i>In the worktree, before Gitnetix removes it</div>
+          </div>
+        </div>
+      </div>
+      <div class="bottom">
+        <div class="box">
+          <div class="box-h"><h2>How they run</h2></div>
+          <div class="box-b">
+            <div class="row"><span class="k">Shell</span><span class="select">zsh<i data-i="chevD" data-s="12"></i></span></div>
+            <div class="row"><span class="k help">When a command fails</span><span class="seg"><button class="on">Stop</button><button>Keep going</button></span></div>
+            <div class="row"><span class="k help">Wait before going on</span><span class="sw"></span></div>
+            <div class="row"><span class="k">Output</span><a class="go">Logs<i data-i="chevR" data-s="12"></i></a></div>
+          </div>
+        </div>
+        <div class="box">
+          <div class="box-h"><h2>What commands can read</h2></div>
+          <div class="box-b">
+            <div class="var"><span class="mono">$GITNETIX_BRANCH</span><span class="hint">feat/login</span></div>
+            <div class="var"><span class="mono">$GITNETIX_PARENT</span><span class="hint">main</span></div>
+            <div class="var"><span class="mono">$GITNETIX_WORKTREE</span><span class="hint">~/Projects/lineage-app.feat-login</span></div>
+            <div class="var"><span class="mono">$GITNETIX_MAIN</span><span class="hint">~/Projects/lineage-app</span></div>
+          </div>
+        </div>
+      </div>
+      <div class="tip" style="left:44px;top:668px">On: Gitnetix waits for the commands before it shows the new branch or worktree. Off: they run alongside, and their output goes to the Logs.</div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-b">
+  <div class="cap"><b>B · Split</b><span>The moments on the left with how their last run went. The picked one on the right: one field per command, where it runs, its variables, and its last output.</span></div>
+  <div class="panel" data-title="Hooks" data-sub="lineage-app">
+    <div class="pg flush">
+      <div class="split">
+        <div class="rail">
+          <div class="lab">Branches</div>
+          <div class="li"><span class="nm"><span>Created</span><span class="sub"><span class="dot ok"></span>1 command, ran 4 min ago</span></span></div>
+          <div class="li empty"><span class="nm"><span>Deleted</span><span class="sub">No commands</span></span></div>
+          <div class="lab">Worktrees</div>
+          <div class="li on"><span class="nm"><span>Created</span><span class="sub"><span class="dot err"></span>3 commands, failed 12:04</span></span></div>
+          <div class="li"><span class="nm"><span>Removed</span><span class="sub"><span class="dot"></span>1 command, never ran</span></span></div>
+          <div class="foot">Commands run in zsh, one after the other. They read <span class="mono" style="font-size:11px">$GITNETIX_*</span> variables.</div>
+        </div>
+        <div class="det">
+          <div class="det-h"><strong>When a worktree is created</strong><span class="sp"></span><button class="btn btn-sm"><i data-i="play" data-s="12"></i>Test on feat/login</button><span class="hint">On</span><span class="sw on"></span></div>
+          <div class="kv">
+            <span class="kk">Runs in</span><span class="mono" style="font-size:12px">~/Projects/lineage-app.&lt;branch&gt;</span>
+            <span class="kk">Runs</span><span class="muted">After its worktree files are copied</span>
+            <span class="kk">If one fails</span><span><span class="seg"><button class="on">Stop</button><button>Keep going</button></span></span>
+          </div>
+          <div class="sec"><span class="lab">Commands</span></div>
+          <div class="cmds">
+            <div class="cmd"><i data-i="grip" data-s="12"></i><span class="n">1</span><span class="field">cp -R "$GITNETIX_MAIN/fixtures" .</span><span class="x"><i data-i="close" data-s="12"></i></span></div>
+            <div class="cmd"><i data-i="grip" data-s="12"></i><span class="n">2</span><span class="field">bun install</span><span class="x"><i data-i="close" data-s="12"></i></span></div>
+            <div class="cmd"><i data-i="grip" data-s="12"></i><span class="n">3</span><span class="field">bun run db:seed</span><span class="x"><i data-i="close" data-s="12"></i></span></div>
+            <div class="cmd"><span style="width:12px"></span><span class="n"></span><span class="field ph" style="font-family:var(--mono);font-size:12px">A command, as in a terminal</span><button class="btn btn-sm"><i data-i="plus" data-s="12"></i>Add</button></div>
+          </div>
+          <div class="sec"><span class="lab">Variables</span><span class="hint">Click to insert</span></div>
+          <div class="vars"><span class="tag">$GITNETIX_BRANCH</span><span class="tag">$GITNETIX_PARENT</span><span class="tag">$GITNETIX_WORKTREE</span><span class="tag">$GITNETIX_MAIN</span></div>
+          <div class="sec"><span class="lab">Last run</span><span class="hint">feat/login, today 12:04</span><span class="sp"></span><a class="go">All in Logs<i data-i="chevR" data-s="12"></i></a></div>
+          <div class="out"><span class="p">$</span> <span class="c">cp -R "$GITNETIX_MAIN/fixtures" .</span>
+<span class="p">$</span> <span class="c">bun install</span>
+Checked 412 installs across 455 packages (no changes) [38.00ms]
+<span class="p">$</span> <span class="c">bun run db:seed</span>
+<span class="c-del">error: Script not found "db:seed"            exit 1, stopped</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="mock" id="mock-c">
+  <div class="cap"><b>C · Preview</b><span>Each moment drawn as the steps Gitnetix runs, with yours as the ink stop between them, so you see what exists when your commands start.</span></div>
+  <div class="panel" data-title="Hooks" data-sub="lineage-app">
+    <div class="pg">
+      <div class="flows">
+        <div class="flow">
+          <div class="flow-h"><b>Create a branch</b><span class="hint">from the map or New</span><span class="sp"></span><span class="run"><span class="dot ok"></span>Ran 4 min ago</span></div>
+          <div class="route" style="grid-template-columns:1fr 1fr auto">
+            <div class="stop"><span class="o"></span><span class="t">git branch <span class="mono">feat/login</span></span></div>
+            <div class="stop you"><span class="o"></span><span class="t">Your commands</span></div>
+            <div class="stop end"><span class="o"></span><span class="t">On the map</span></div>
+          </div>
+          <div class="edit"><div class="ta">echo "branche créée : $GITNETIX_BRANCH"</div>
+            <div class="meta"><span class="hint">In <span class="mono">~/Projects/lineage-app</span></span><span class="sp"></span><button class="btn btn-xs"><i data-i="play" data-s="12"></i>Test</button></div></div>
+        </div>
+        <div class="flow">
+          <div class="flow-h"><b>Create a worktree</b><span class="hint">for a new or existing branch</span><span class="sp"></span><span class="run"><span class="dot err"></span>Failed 12:04, exit 1 on line 3</span></div>
+          <div class="route" style="grid-template-columns:1fr 1fr 1fr auto">
+            <div class="stop"><span class="o"></span><span class="t">git worktree add</span></div>
+            <div class="stop"><span class="o"></span><span class="t">Worktree files copied</span></div>
+            <div class="stop you"><span class="o"></span><span class="t">Your commands</span></div>
+            <div class="stop end"><span class="o"></span><span class="t">Ready</span></div>
+          </div>
+          <div class="edit"><div class="ta">cp -R "$GITNETIX_MAIN/fixtures" .
+bun install
+bun run db:seed</div>
+            <div class="meta"><span class="hint">In the new worktree, <span class="mono">~/Projects/lineage-app.&lt;branch&gt;</span></span><span class="sp"></span><button class="btn btn-xs"><i data-i="play" data-s="12"></i>Test</button></div></div>
+        </div>
+        <div class="flow">
+          <div class="flow-h"><b>Remove a worktree</b><span class="hint">from its menu or after a merge</span><span class="sp"></span><span class="run"><span class="dot"></span>Never ran</span></div>
+          <div class="route" style="grid-template-columns:1fr 1fr auto">
+            <div class="stop you"><span class="o"></span><span class="t">Your commands</span></div>
+            <div class="stop"><span class="o"></span><span class="t">git worktree remove</span></div>
+            <div class="stop end"><span class="o"></span><span class="t">Gone</span></div>
+          </div>
+          <div class="edit"><div class="ta">cp .env.local "$GITNETIX_MAIN/.env.$GITNETIX_BRANCH"</div>
+            <div class="meta"><span class="hint">In the worktree, while its files are still there</span><span class="sp"></span><button class="btn btn-xs"><i data-i="play" data-s="12"></i>Test</button></div></div>
+        </div>
+        <div class="flow">
+          <div class="flow-h"><b>Delete a branch</b><span class="hint">from its menu or after a merge</span><span class="sp"></span><span class="run">No commands</span></div>
+          <div class="route" style="grid-template-columns:1fr 1fr auto">
+            <div class="stop"><span class="o"></span><span class="t">git branch -d</span></div>
+            <div class="stop you"><span class="o"></span><span class="t">Your commands</span></div>
+            <div class="stop end"><span class="o"></span><span class="t">Off the map</span></div>
+          </div>
+          <div class="edit"><div class="ta ph">A command per line, as in a terminal</div></div>
+        </div>
+      </div>
+      <p class="hint" style="margin-top:14px">Commands run in zsh, in order, and stop at the first that fails. They read <span class="mono">$GITNETIX_BRANCH $GITNETIX_PARENT $GITNETIX_WORKTREE $GITNETIX_MAIN</span>. Output goes to the Logs.</p>
+    </div>
+  </div>
+</section>
+
+<script src="themes.js"></script>
+<script src="base.js"></script>
+</body></html>
