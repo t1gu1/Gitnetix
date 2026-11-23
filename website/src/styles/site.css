@@ -158,6 +158,8 @@ details summary:hover h3{color:var(--muted)}
 .hd .pg:has(>.tk-bar){flex-direction:column;overflow:hidden;container:hd/inline-size}
 /* Submodules: the toolbar above the list and the pin line (app.css's .body.split), its phone rules measured on the page. */
 .hd .pg:has(>.sm-bar){flex-direction:column;overflow:hidden;container:hd/inline-size}
+/* Release notes: the phone header above the steps and columns; app.css's .rn layouts measured on the demo, not the page. */
+.hd .pg:has(>.rn){flex-direction:column;overflow:hidden;container:hd/inline-size}
 /* Analytics: the toolbar above the rail and the pick (app.css's .body.split), its phone rules measured on the page. */
 .hd .pg:has(>.ana-bar){flex-direction:column;overflow:hidden;container:hd/inline-size}
 .hd .term-bar{cursor:pointer}

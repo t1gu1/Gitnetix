@@ -4,7 +4,7 @@
  * - `:root` and `body` become the demo's root. Rules about the page itself (`html`, `#root`, `body.resizing …`) are dropped.
  * - A leading condition on <html> (`[data-theme="light"]`, `[data-palette^=…]`, `:root[data-anim-off~=…]`) stays outside.
  * - The phone layout's media rules hold for the phone demo (`.hd-phone`) at any window width, the desktop ones for the others;
- *   the map's narrow rules follow the demo's own width (its `hd` container), not the window's.
+ *   the map's and release notes' narrow rules follow the demo's own width (its `hd` container), not the window's.
  * - @font-face (the shell's icon font, a file the site doesn't serve) is dropped.
  */
 const DOC = /^(?::root|html)?(?:\[data-(?:theme|palette|anim-off|idle)[^\]]*\]|:not\(\[data-palette\]\))+/;
@@ -79,7 +79,8 @@ export function scopeCss(css: string, scope = '.hd') {
         const q = pre.slice(6).trim();
         if (/max-width:\s*480px/.test(q) && /pointer:\s*coarse/.test(q)) out += rules(`${under}.hd-phone`);
         else if (/min-width:\s*901px/.test(q)) out += rules(`${under}:not(.hd-phone)`);
-        else if (q === '(max-width: 720px)') out += `@container hd ${q}{${rules(under)}}\n`;
+        // Release notes' narrower layouts: the demo window is never as wide as the app's four columns need.
+        else if (q === '(max-width: 720px)' || q === '(max-width: 1439px)' || q === '(max-width: 1099px)') out += `@container hd ${q}{${rules(under)}}\n`;
         else out += `${pre}{${rules(under)}}\n`;
       } else if (/^@(supports|container|layer)\b/.test(pre)) out += `${pre}{${rules(under)}}\n`;
       else if (/^@font-face\b/.test(pre)) block();
