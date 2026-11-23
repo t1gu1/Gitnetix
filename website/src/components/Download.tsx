@@ -82,9 +82,9 @@ claude mcp add gitnetix -- "$(pwd)/target/release/gitnetix-mcp"`}</pre>
     </article>
     <article className="box feat">
     <h3>From source</h3>
-    <p style={{ fontSize: '15px' }}>Rust 1.80+, Node 20+, pnpm, and <code>git</code> on your PATH.</p>
-    <pre className="shell">{`pnpm install
-pnpm app`}</pre>
+    <p style={{ fontSize: '15px' }}>Rust 1.80+, Bun 1.4+, and <code>git</code> on your PATH.</p>
+    <pre className="shell">{`bun install
+bun run app`}</pre>
     </article>
     </div>
     </section>

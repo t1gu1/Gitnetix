@@ -1,8 +1,8 @@
 // Two real Gitnetix apps (Tauri windows, not a browser) on a sandbox settings folder, to test what one instance sees of
 // the other's changes. The UI is built into the app: no Vite runs, so no other checkout's dev server on 1420 gets in the way.
 //
-//   pnpm app:two [--separate] [--no-build]   build, then open windows 1 and 2; Ctrl-C closes both
-//   pnpm app:two shot <1|2> <file.png>       picture of what window 1 or 2 shows (its page, without the title bar)
+//   bun run app:two [--separate] [--no-build]  build, then open windows 1 and 2; Ctrl-C closes both
+//   bun run app:two shot <1|2> <file.png>     picture of what window 1 or 2 shows (its page, without the title bar)
 //
 // --separate: one settings folder each, like two computers that share only the git remote.
 // Never the real settings folder: a second instance there resumes the agents the first one is running.
@@ -21,7 +21,7 @@ const args = process.argv.slice(2);
 if (args[0] === "shot") {
   const [, n, file] = args;
   const it = JSON.parse(readFileSync(state, "utf8")).instances[Number(n) - 1];
-  if (!it || !file) throw new Error("usage: pnpm app:two shot <1|2> <file.png>, while pnpm app:two runs");
+  if (!it || !file) throw new Error("usage: bun run app:two shot <1|2> <file.png>, while bun run app:two runs");
   // The app takes the picture of its own page (`app.screenshot`): capturing its window from outside needs the
   // terminal to hold the Screen Recording permission.
   const png = join(it.home, "window.png");
@@ -46,7 +46,7 @@ const localEnv = join(dirname(common || ".git"), ".env.local");
 if (existsSync(localEnv)) process.loadEnvFile(localEnv);
 
 if (!args.includes("--no-build")) {
-  const built = spawnSync("pnpm", ["tauri", "build", "--debug", "--no-bundle"], { stdio: "inherit", shell: process.platform === "win32" });
+  const built = spawnSync(process.execPath, ["run", "tauri", "build", "--debug", "--no-bundle"], { stdio: "inherit" });
   if (built.status !== 0) process.exit(built.status ?? 1);
 }
 const bin = resolve("target", "debug", process.platform === "win32" ? "gitnetix.exe" : "gitnetix");
@@ -93,7 +93,7 @@ for (const [i, home] of homes.entries()) {
   console.log(`[two-apps] window ${i + 1}: pid ${child.pid}, API http://127.0.0.1:${port}/rpc, token ${token}, settings ${home}`);
 }
 writeFileSync(state, JSON.stringify({ instances }, null, 2));
-console.log(`[two-apps] screenshot: pnpm app:two shot <1|2> <file.png>. Ctrl-C closes both.`);
+console.log(`[two-apps] screenshot: bun run app:two shot <1|2> <file.png>. Ctrl-C closes both.`);
 
 let open = kids.length;
 for (const k of kids) k.on("exit", () => --open || process.exit(0));

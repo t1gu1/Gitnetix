@@ -2,11 +2,11 @@
 // per state, opens it in the app with a headless browser, selects each branch and checks the action its card
 // suggests. Exits 1 when a check fails.
 //
-//   node scripts/ui-branch-check.mjs [--out <dir>] [--keep]
+//   bun scripts/ui-branch-check.mjs [--out <dir>] [--keep]
 //
 // Runs gitnetix-server (built here) and Vite on free ports with a random token, in a temp folder (GITNETIX_HOME):
 // your projects and settings are not touched. --out: where the screenshots go. --keep: keep the temp folder.
-// Needs Playwright with Chromium: `npx -y playwright install chromium` once, or PLAYWRIGHT_DIR=<playwright package>.
+// Needs Playwright with Chromium: `bun add -g playwright && bunx playwright install chromium` once, or PLAYWRIGHT_DIR=<playwright package>.
 import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -146,9 +146,10 @@ try {
 
   const require = createRequire(join(root, "package.json"));
   const npx = join(homedir(), ".npm", "_npx");
-  const dirs = [process.env.PLAYWRIGHT_DIR, "playwright", ...(existsSync(npx) ? readdirSync(npx).map((d) => join(npx, d, "node_modules", "playwright")) : [])].filter(Boolean);
+  // Bun's global install first, then an older `npx playwright` download.
+  const dirs = [process.env.PLAYWRIGHT_DIR, "playwright", join(homedir(), ".bun", "install", "global", "node_modules", "playwright"), ...(existsSync(npx) ? readdirSync(npx).map((d) => join(npx, d, "node_modules", "playwright")) : [])].filter(Boolean);
   const pw = dirs.map((d) => { try { return require(d); } catch { return null; } }).find(Boolean);
-  if (!pw) throw new Error("Playwright not found: run `npx -y playwright install chromium` once, or set PLAYWRIGHT_DIR");
+  if (!pw) throw new Error("Playwright not found: run `bun add -g playwright && bunx playwright install chromium` once, or set PLAYWRIGHT_DIR");
   // shortcut: the fallback only knows the macOS arm64 cache layout; set CHROME elsewhere when the default launch fails.
   const cache = join(homedir(), "Library", "Caches", "ms-playwright");
   const cached = existsSync(cache) ? readdirSync(cache).filter((d) => /^chromium-\d+$/.test(d)).sort().reverse().map((d) => join(cache, d, "chrome-mac-arm64", "Google Chrome for Testing.app", "Contents", "MacOS", "Google Chrome for Testing")) : [];
@@ -158,7 +159,7 @@ try {
       break;
     } catch {}
   }
-  if (!browser) throw new Error("No Chromium Playwright can launch: run `npx -y playwright install chromium`, or set CHROME");
+  if (!browser) throw new Error("No Chromium Playwright can launch: run `bunx playwright install chromium`, or set CHROME");
 
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 });
   const errors = [];

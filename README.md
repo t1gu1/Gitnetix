@@ -67,14 +67,14 @@ Updates installed from inside the app don't need this again.
 ## Run from source
 
 ```sh
-pnpm install
-pnpm app              # desktop app in dev (tauri dev)
-GITNETIX_DEV_PORT=1430 pnpm app   # when another app already uses port 1420 (or put GITNETIX_DEV_PORT=1430 in .env.local)
-pnpm app:build        # bundle (.app / .dmg / .msi / .deb)
+bun install
+bun run app           # desktop app in dev (tauri dev)
+GITNETIX_DEV_PORT=1430 bun run app   # when another app already uses port 1420 (or put GITNETIX_DEV_PORT=1430 in .env.local)
+bun run app:build     # bundle (.app / .dmg / .msi / .deb)
 cargo test --workspace
 ```
 
-Requirements: Rust 1.80+, Node 20+, pnpm, `git` on PATH. The app also needs an agent CLI signed in
+Requirements: Rust 1.80+, [Bun](https://bun.com) 1.4+ (no Node needed: the scripts run Vite, TypeScript and Tauri on Bun), `git` on PATH. The app also needs an agent CLI signed in
 (`claude`, `codex`, `agy`, `copilot` or `ollama`), and Agent setup keeps asking until one answers a test.
 API keys in AI setup can run the quick AI tasks on top of it.
 Gitnetix also finds the copies that Claude Desktop, the ChatGPT and Ollama apps and `gh copilot` keep off PATH.
@@ -98,18 +98,18 @@ PRs and tickets. The layout switches to single-pane with a bottom tab bar under 
 2. Phone: enter the address and pairing token shown there.
 
 Or scan the QR code on that page: the companion serves the UI itself, so the phone's browser opens
-Gitnetix already paired, no native build needed. In dev (`pnpm app`) it serves `dist/`: `pnpm app` builds it when missing, and `pnpm build` refreshes it after UI changes.
+Gitnetix already paired, no native build needed. In dev (`bun run app`) it serves `dist/`: `bun run app` builds it when missing, and `bun run build` refreshes it after UI changes.
 On Linux with ufw on, use **Allow through firewall** there (it opens the port to your subnet only).
 
 ```sh
-pnpm tauri ios init && pnpm ios          # needs Xcode
-pnpm tauri android init && pnpm android  # needs Android SDK/NDK
+bun run tauri ios init && bun run ios          # needs Xcode
+bun run tauri android init && bun run android  # needs Android SDK/NDK
 ```
 
 `src-tauri/Info.ios.plist` allows local-network HTTP on iOS. On Android release builds, set
 `android:usesCleartextTraffic="true"` in the generated manifest (or put the companion behind HTTPS/Tailscale).
 
-The same pairing works from any browser: `pnpm dev` and open http://localhost:1420.
+The same pairing works from any browser: `bun run dev` and open http://localhost:1420.
 
 **Security:** the companion API is plain HTTP protected by a 64-hex-char token. Anyone holding
 the token on your network can run git and agents on your computer. It listens on 127.0.0.1

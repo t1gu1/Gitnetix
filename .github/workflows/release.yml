@@ -110,14 +110,9 @@ jobs:
           done
           echo "GSTREAMER_PLUGINS_DIR=$dir" >> "$GITHUB_ENV"
 
-      - uses: pnpm/action-setup@v6
+      - uses: oven-sh/setup-bun@v2
         with:
-          version: 11
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
+          bun-version-file: package.json
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -128,7 +123,7 @@ jobs:
           key: ${{ matrix.name }}
 
       - name: Install frontend dependencies
-        run: pnpm install --frozen-lockfile
+        run: bun install --frozen-lockfile
 
       # Once is enough: a failure fails this job, so publish (which needs every build) never runs.
       - name: Run tests
@@ -205,7 +200,7 @@ jobs:
           if [ -n "${{ matrix.target }}" ]; then
             ARGS+=(--target "${{ matrix.target }}")
           fi
-          pnpm tauri build "${ARGS[@]}"
+          bun run tauri build "${ARGS[@]}"
 
       # Gather the release files in one flat folder so the publish job can
       # tell the platforms apart by file name alone.

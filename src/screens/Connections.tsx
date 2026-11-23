@@ -996,8 +996,8 @@ export function PhoneCard({ server: s }: { server: Config["server"] }) {
       <div className="phone-card">
         {icon}
         <div className="col" style={{ gap: 12, alignItems: "flex-start", minWidth: 0 }}>
-          {/* Relaunching a dev build ends `pnpm app`'s Vite server, and the new window would stay blank. */}
-          {head(<>Phones can't connect yet: Gitnetix isn't listening on port <span className="mono">{s.port}</span> with these settings. {import.meta.env.DEV ? "Restart pnpm app" : "Restart Gitnetix"} to apply them. If this stays after a restart, another app is using the port.</>)}
+          {/* Relaunching a dev build ends `bun run app`'s Vite server, and the new window would stay blank. */}
+          {head(<>Phones can't connect yet: Gitnetix isn't listening on port <span className="mono">{s.port}</span> with these settings. {import.meta.env.DEV ? "Restart bun run app" : "Restart Gitnetix"} to apply them. If this stays after a restart, another app is using the port.</>)}
           {!import.meta.env.DEV && (
             <button className="btn btn-sm btn-primary" onClick={() => import("@tauri-apps/plugin-process").then((p) => p.relaunch()).catch((e) => toast(String(e), "error"))}>
               Restart Gitnetix

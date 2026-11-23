@@ -5,9 +5,9 @@ import react from "@vitejs/plugin-react";
 
 // Tauri expects a fixed port and, on mobile, a LAN-reachable dev server.
 const host = process.env.TAURI_DEV_HOST;
-// GITNETIX_DEV_PORT moves the dev server off 1420 when another app holds it (`pnpm app` passes it on to Tauri).
+// GITNETIX_DEV_PORT moves the dev server off 1420 when another app holds it (`bun run app` passes it on to Tauri).
 const port = Number(process.env.GITNETIX_DEV_PORT) || 1420;
-// Set by `pnpm app` (scripts/dev.mjs): exists while the app runs an action.
+// Set by `bun run app` (scripts/dev.mjs): exists while the app runs an action.
 const busy = process.env.GITNETIX_BUSY_FILE;
 
 /** Gitnetix merges and switches branches in this very checkout: a page reload halfway would drop the rest of the flow
@@ -49,7 +49,7 @@ const inlineTouchIcon: Plugin = {
 };
 
 /** The newest release tag, shown as the dev build's version: Cargo.toml and tauri.conf.json keep 0.1.0.
- * shortcut: read when Vite starts, and `pnpm app` keeps Vite across restarts; restart it to show a newer tag. */
+ * shortcut: read when Vite starts, and `bun run app` keeps Vite across restarts; restart it to show a newer tag. */
 function lastTag() {
   try {
     return execFileSync("git", ["tag", "--list", "v*", "--sort=-creatordate"], { encoding: "utf8" }).split("\n")[0].trim() || null;

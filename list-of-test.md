@@ -30,12 +30,12 @@ cargo test -p gitnetix-core --test branch_regression br03      # one case
 cargo test -p gitnetix-core --test two_users                   # two users on one origin, about 25 s
 cargo test -p gitnetix-core                                    # every core test, about 2 min
 cargo test -p gitnetix-core --test ai_conflict_edges -- --ignored --test-threads=2   # real AI cases, about 2 min
-pnpm check:ui-branches                                         # UI cases in a headless browser, about 1 min
+bun run check:ui-branches                                      # UI cases in a headless browser, about 1 min
 ```
 
 The real AI cases use the `claude` CLI (installed and signed in). Set `GITNETIX_TEST_AI=codex` (or another provider id) to use another one.
 
-The UI script builds `gitnetix-server`, makes a throwaway repo with one branch per state, and runs the server and Vite on free ports in a temp folder. It never touches your projects and stops only the processes it started. It needs Playwright with Chromium (`npx -y playwright install chromium` once). `--out <dir>` saves the screenshots there.
+The UI script builds `gitnetix-server`, makes a throwaway repo with one branch per state, and runs the server and Vite on free ports in a temp folder. It never touches your projects and stops only the processes it started. It needs Playwright with Chromium (`bun add -g playwright && bunx playwright install chromium` once). `--out <dir>` saves the screenshots there.
 
 `file_history.rs::history_follows_renames_and_blame_names_each_line` fails about one run in three on an unchanged tree. If it is the only failure, run it again on its own before suspecting a change.
 
@@ -168,7 +168,7 @@ Two kinds of tests. A fake AI (a shell script on PATH) checks the plumbing on ev
 
 ## UI checks (UI)
 
-Checks of the redesigned branch map. `pnpm check:ui-branches` runs them (see "Running the tests"): it selects each branch of the scenario repo and reads its card.
+Checks of the redesigned branch map. `bun run check:ui-branches` runs them (see "Running the tests"): it selects each branch of the scenario repo and reads its card.
 
 | ID | Case | Expected | Status |
 | --- | --- | --- | --- |

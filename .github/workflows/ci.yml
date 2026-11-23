@@ -42,14 +42,9 @@ jobs:
             cmake \
             libclang-dev
 
-      - uses: pnpm/action-setup@v6
+      - uses: oven-sh/setup-bun@v2
         with:
-          version: 11
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-          cache: pnpm
+          bun-version-file: package.json
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -58,10 +53,10 @@ jobs:
           key: linux
 
       - name: Install frontend dependencies
-        run: pnpm install --frozen-lockfile
+        run: bun install --frozen-lockfile
 
       - name: Typecheck
-        run: pnpm typecheck
+        run: bun run typecheck
 
       - name: Run tests
         run: cargo test --workspace

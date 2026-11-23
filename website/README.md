@@ -4,8 +4,8 @@ Astro static site with React components (`src/components/*.tsx`, rendered to HTM
 It is rebuilt after every release (called from `release.yml`) and on pushes to `main` that touch `website/`.
 
 ```sh
-pnpm install --ignore-workspace
-pnpm dev
+bun install
+bun run dev
 ```
 
 - Release notes come from the repo's `CHANGELOG.md` (dated sections only), one page per version.

@@ -17,11 +17,11 @@ const port = Number(process.env.GITNETIX_DEV_PORT) || 1420;
 const busy = join(tmpdir(), `gitnetix-busy-${process.pid}`);
 const env = { ...process.env, GITNETIX_BUSY_FILE: busy };
 const win = process.platform === "win32";
-// Node runs the CLIs' own scripts: on Windows node_modules/.bin only has .cmd shims, which spawn cannot start without a shell.
+// Bun (process.execPath) runs the CLIs' own scripts, so Windows needs no node_modules/.bin shim and no shell.
 const vitePath = join("node_modules", "vite", "bin", "vite.js");
 const tauriPath = join("node_modules", "@tauri-apps", "cli", "tauri.js");
 // The companion serves phones the built UI from dist/ (`dev_asset` in src-tauri/src/lib.rs); without it they get a blank page.
-// shortcut: built only when missing; `pnpm build` again to show UI changes on the phone.
+// shortcut: built only when missing; `bun run build` again to show UI changes on the phone.
 if (!existsSync("dist/index.html")) spawnSync(process.execPath, [vitePath, "build"], { stdio: "inherit" });
 // Vite lives across app restarts; tauri only rebuilds and relaunches the app.
 const vite = spawn(process.execPath, [vitePath], { stdio: "inherit", env });

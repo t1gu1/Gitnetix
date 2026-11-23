@@ -249,7 +249,7 @@ mod desktop {
     }
 
 
-    /// Dev builds load the UI from Vite and embed nothing, so serve the `pnpm build` output instead.
+    /// Dev builds load the UI from Vite and embed nothing, so serve the `bun run build` output instead.
     fn dev_asset(path: &str) -> Option<(Vec<u8>, String)> {
         if !cfg!(debug_assertions) {
             return None;

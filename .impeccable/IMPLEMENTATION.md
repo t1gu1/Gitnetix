@@ -53,6 +53,6 @@ Measured on v0.24.0:
 
 ## 5. Verify
 
-- `pnpm app` runs the desktop app (Tauri dev). Check Gitnetix Dark, Gitnetix Light, Tokyo Night Storm, Catppuccin Latte and one high-contrast theme.
+- `bun run app` runs the desktop app (Tauri dev). Check Gitnetix Dark, Gitnetix Light, Tokyo Night Storm, Catppuccin Latte and one high-contrast theme.
 - Static pages: `firefox --headless --screenshot out.png --window-size 1520,1960 file:///path/to/page.html` works on Linux; no Chromium is installed on the original machine.
 - Phone width (390px): the single-pane layout with the bottom tab bar must still hold.

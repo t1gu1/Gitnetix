@@ -3,9 +3,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "astro dev --force",
-    "build": "astro build",
-    "preview": "astro preview"
+    "dev": "bun x --bun astro dev --force",
+    "build": "bun x --bun astro build",
+    "preview": "bun x --bun astro preview"
   },
   "dependencies": {
     "@astrojs/react": "^7.1.1",
