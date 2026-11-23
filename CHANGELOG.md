@@ -14,6 +14,12 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (Website)
+- The release notes demo now walks through four steps: choose a range, pick the changes to include, write the notes, then publish them or add them to CHANGELOG.md. Each change shows its PR or commit reference and linked tickets.
+
+### Changed (Website)
+- The release notes demo's narrow layouts now fit the demo width.
+
 ## [0.33.0] - 2026-11-22
 
 ### Changed (App)
