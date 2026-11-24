@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.36.4] - 2026-11-24
+
 ### Added (App)
 
 - Show a dot when a newer release is available, and check for updates periodically.
