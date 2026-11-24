@@ -76,6 +76,44 @@ function reply(s: Session, text: string): Turn {
 }
 
 const SEED: Session[] = [
+  // acme-web's Claude worktrees beside fix/stale-remote: one working, one asking, one done (the workspace's map shows them all).
+  {
+    key: 'acme-web/feat/author-filter', project: 'acme-web', branch: 'feat/author-filter', base: 'main', behind: 0, add: 0, del: 0, status: 'running', ago: 'just now',
+    ai: { provider: 'claude', model: 'claude-opus-5-5', effort: 'xhigh' },
+    lines: [
+      cmd('$ claude · WEB-224: let me filter the branch map by author, from the Everyone menu.'),
+      dim('Read src/screens/BranchMap.tsx'), dim('Grep author src/api'),
+      ai('Branches already carry their author. I am adding an author list under **Everyone**, and parents of the branches shown stay as faded boxes.'),
+      dim('Edit src/screens/BranchMap.tsx'),
+    ],
+  },
+  {
+    key: 'acme-web/feat/diff-tokens', project: 'acme-web', branch: 'feat/diff-tokens', base: 'release/0.6.0', behind: 1, add: 0, del: 0, status: 'waiting', ago: '6 min ago',
+    ai: { provider: 'claude', model: 'claude-sonnet-5-5', effort: 'high' },
+    lines: [
+      cmd('$ claude · Finish PR #144: give the light themes their diff tokens too.'),
+      dim('Read src/lib/themes.ts'), dim('Grep --diff- src/styles'), dim('Bash pnpm test themes'),
+      ai('Light themes mix their diff colors from a white background, so a 12% tint is hard to see. Two ways to go:\n\n1. **Stronger tint**: 20% on light themes, 12% on dark ones\n2. **Per theme**: each light theme sets its own `addBg` and `delBg`\n\nWhich one do you prefer?'),
+      WAIT,
+    ],
+    script: [{
+      steps: ['Edit src/lib/themes.ts', 'Edit src/styles/app.css', 'Bash pnpm test themes'],
+      reply: 'Done: light themes tint added and removed lines at 20%, dark ones keep 12%. Every theme passes the contrast check.',
+      add: 16,
+      del: 3,
+      wip: [{ path: 'src/lib/themes.ts', add: 12, del: 3, s: 'M' }, { path: 'src/styles/app.css', add: 4, del: 0, s: 'M' }],
+    }],
+  },
+  {
+    key: 'acme-web/feat/tree-keys', project: 'acme-web', branch: 'feat/tree-keys', base: 'release/0.6.0', behind: 0, add: 24, del: 2, status: 'waiting', ago: '9 min ago',
+    ai: { provider: 'claude', model: 'claude-opus-5-5', effort: 'xhigh' },
+    lines: [
+      cmd('$ claude · Ana asked on PR #148: make Home and End jump to the trunk and to the last release.'),
+      dim('Read src/screens/BranchTree.tsx'), dim('Read src/lib/keys.ts'), dim('Edit src/lib/keys.ts'), dim('Edit src/screens/BranchTree.tsx'), dim('Bash pnpm test tree'),
+      ai('Done: **Home** jumps to the trunk and **End** to the last release, and focus stays on the row after the jump.\n\n- `NAV_KEYS` has `Home` and `End`\n- 3 new tests, all 96 pass'),
+      WAIT,
+    ],
+  },
   {
     key: 'acme-web/fix/stale-remote', project: 'acme-web', branch: 'fix/stale-remote', base: 'release/0.6.0', behind: 2, add: 14, del: 9, status: 'running', ago: 'just now',
     ai: { provider: 'claude', model: 'claude-sonnet-5-5', effort: 'high' },
@@ -126,6 +164,16 @@ const SEED: Session[] = [
 ];
 /** Turns already under way, played once their page is looked at: the running agent is still at work when you get there. */
 const PARKED: Record<string, { turn: Turn; i: number }> = {
+  'acme-web/feat/author-filter': {
+    i: 0,
+    turn: {
+      steps: ['Edit src/styles/app.css', 'Bash pnpm test map'],
+      reply: 'Done: the Everyone menu lists every author, and picking one fades the other branches but keeps their parents.\n\n- `BranchMap.tsx`: the author list and its filter\n- 4 new tests, all 100 pass',
+      add: 64,
+      del: 7,
+      wip: [{ path: 'src/screens/BranchMap.tsx', add: 52, del: 7, s: 'M' }, { path: 'src/styles/app.css', add: 12, del: 0, s: 'M' }],
+    },
+  },
   'acme-web/fix/stale-remote': {
     i: 0,
     turn: {

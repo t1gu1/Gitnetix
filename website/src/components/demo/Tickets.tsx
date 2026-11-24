@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { Icon } from '../../../../src/components/Icon';
 import { plural } from '../../../../src/lib/format';
 import { withPrefix, withTicket } from '../../../../src/lib/kinds';
@@ -94,7 +94,7 @@ const TICKETS: Ticket[] = [
     criteria: [{ text: 'Steps appear as they run', done: false }, { text: 'Older groups fold', done: false }],
   }),
   jira({
-    key: 'WEB-224', since: 'for 1 day', opened: 'yesterday', by: 'Grace Hopper', kind: 'Story', title: 'Filter branches by author', status: 'todo', assignee: ME, mine: true, sprint: true, release: '',
+    key: 'WEB-224', since: 'for 1 day', opened: 'yesterday', by: 'Grace Hopper', kind: 'Story', title: 'Filter branches by author', status: 'progress', assignee: ME, mine: true, sprint: true, release: '', branch: 'feat/author-filter',
     priority: 'Medium', timeEstimate: '1d', parentKey: 'WEB-180', parentTitle: 'Branch tree polish', fixVersions: [], comments: 0,
     description: "Let me narrow the tree to my branches, or to a teammate's, from the filter's menu.",
     criteria: [{ text: 'An author list in the filter menu', done: false }, { text: 'Branches of other authors fold away, their parents stay', done: false }],
@@ -129,7 +129,7 @@ const SUGGEST: Record<string, Suggestion> = {
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').split('-').filter(Boolean).slice(0, 4).join('-');
 
 export default function Tickets() {
-  const { flash, addBranch } = useDemo();
+  const { flash, addBranch, tkPick } = useDemo();
   const later = useLater();
   const [all, setAll] = useState(TICKETS);
   const [mine, setMine] = useState(true);
@@ -143,6 +143,15 @@ export default function Tickets() {
   const [suggestions, setSuggestions] = useState<Record<string, Suggestion>>({});
   const [busy, setBusy] = useState<'sync' | 'triage'>();
   const [synced, setSynced] = useState('2 min ago');
+  // A ticket picked on the branch map: open it, whoever's it is.
+  useEffect(() => {
+    if (!tkPick) return;
+    setMine(false);
+    setPlace('all');
+    setSearch('');
+    setSel(tkPick.key);
+    setPane('detail');
+  }, [tkPick]);
   const term = search.trim().toLowerCase();
   // Active sprint is Jira's: it hides Trello and Asana. The trackers menu counts before the search.
   const counted = all.filter((t) => (!mine || t.mine) && (!sprint || t.sprint));

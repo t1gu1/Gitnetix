@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Icon } from '../../../../src/components/Icon';
 import { plural } from '../../../../src/lib/format';
+import { prTone } from '../../../../src/lib/prStatus';
 import { Avatar, Busy, Choice, Empty, EmptyState, Markdown, Menu, Modal, PageHead, Seg, useDemo, useLater, useMenu, type MenuItem } from './ui';
 
 /** src/screens/PullRequests.tsx on a made-up GitHub repo: merge, close, review, comment, react, resolve; checks finish as you watch. */
@@ -108,6 +109,14 @@ const HUNKS: Record<string, PrFile> = Object.fromEntries([
   file('src/styles/app.css', 2310, [' .tree-path {', '+  stroke-dasharray: 2 4;', '+  animation: path-run 1.6s linear infinite;', ' }']),
 ].map((f) => [f.path, f]));
 
+/** Branch `head`'s open pull request and its status dot, as openPrOf and prTone give them to the app's map. The demo's
+ *  checks, reviewers and threads have the app's shape, so prTone reads them as they are.
+ *  shortcut: reads the seed list, not the page's state, so a PR merged or closed on the page keeps its dot on the map; lift the PR state into HeroDemo if that matters. */
+export function openPrOf(head: string) {
+  const p = PRS.find((x) => x.head === head && (x.state === 'open' || x.state === 'draft'));
+  return p && { number: p.number, tone: prTone(p as never, p as never) };
+}
+
 const inTab = (p: Pr, t: Tab, who: Who) =>
   t === 'review'
     ? !!p.review && p.state !== 'merged' && p.state !== 'closed'
@@ -130,7 +139,7 @@ const branchOptions = (branches: Record<string, { name: string; merged?: boolean
   Object.values(branches).filter((b) => b.name !== not && !b.merged).map((b) => ({ value: b.name, label: b.name }));
 
 export default function PullRequests() {
-  const { flash, sel: branch, branches } = useDemo();
+  const { flash, sel: branch, branches, prPick } = useDemo();
   const later = useLater();
   const [prs, setPrs] = useState(PRS);
   const [tab, setTab] = useState<Tab>('open');
@@ -142,6 +151,15 @@ export default function PullRequests() {
   const [asking, setAsking] = useState(false);
   const [creating, setCreating] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  // A PR picked on the branch map: open it, whoever's it is.
+  useEffect(() => {
+    if (!prPick) return;
+    setTab('open');
+    setWho('all');
+    setSearch('');
+    setSel(prPick.n);
+    setPane('detail');
+  }, [prPick]);
   const term = search.trim().toLowerCase();
   const items = prs.filter((p) => !term || `#${p.number} ${p.title} ${p.head} ${p.author}`.toLowerCase().includes(term));
   const list = items.filter((p) => inTab(p, tab, who));

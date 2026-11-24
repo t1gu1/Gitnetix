@@ -14,6 +14,10 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Changed (Website)
+- The workspace demo matches the app's branch map: tiles show their open pull request with its status dot, and the selected branch card has a PR and ticket row that opens the item on the Pull requests or Tickets page. Merged branches fold into one "N merged branches" line with a Clean up button.
+- Three more acme-web branches run Claude in their own worktrees: one still working, one waiting on a question and one done with changes to merge.
+
 ## [0.36.0] - 2026-11-23
 
 ### Added (App)

@@ -3,12 +3,13 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState, type C
 import { Icon } from '../../../src/components/Icon';
 import { STATUS_SHOWN } from '../../../src/lib/agentLog';
 import { plural } from '../../../src/lib/format';
+import { PR_TONE_LABEL } from '../../../src/lib/prStatus';
 import { kindOfBranch } from '../../../src/lib/kinds';
 import { otherMode, resolveTheme } from '../../../src/lib/themes';
 import Analytics from './demo/Analytics';
 import { AgentInput, AgentLog, AgentPicker, FinishCard, ME, TRY, keyOf, pathOf, shown, useAgents, type Ai, type Pick } from './demo/agents';
 import { CARD_ROOM, MapLayer, MapLegendBox, PREFS, branches, layoutMap, lineageOf, onMap, type AgentInfo, type MapHandlers, type MapPrefs, type Shipped } from './demo/BranchMap';
-import PullRequests from './demo/PullRequests';
+import PullRequests, { openPrOf } from './demo/PullRequests';
 import ReleaseNotes from './demo/ReleaseNotes';
 import Submodules from './demo/Submodules';
 import Tickets from './demo/Tickets';
@@ -46,29 +47,43 @@ export type Branch = {
   /** Commits origin doesn't have yet. */
   push?: number;
   stashes?: number;
+  /** The ticket it works on (BranchView.ticket): its key on the card, a link to the Tickets page. */
+  ticket?: string;
 };
 /** A commit of a branch, with the files it changed; `when` as src/lib/format.ts `ago` says it. */
 export type Commit = { sha: string; subject: string; body?: string; author: string; when: string; files: File[]; tags?: string[] };
 
 const BRANCHES: Record<string, Branch> = {
-  main: { name: 'main', role: 'trunk', author: 'Ana Moreau', ahead: 0, behind: 0, wip: [], files: [], kids: ['release/0.6.0', 'feat/agent-pane', 'feat/old-sidebar', 'fix/tab-order'] },
+  main: { name: 'main', role: 'trunk', author: 'Ana Moreau', ahead: 0, behind: 0, wip: [], files: [], kids: ['release/0.6.0', 'feat/author-filter', 'feat/agent-pane', 'feat/old-sidebar', 'fix/tab-order'] },
   'release/0.6.0': {
     name: 'release/0.6.0', role: 'release', base: 'main', tag: 'Next', author: 'Ana Moreau', ahead: 9, behind: 0, wip: [],
     files: [{ path: 'src/screens/BranchTree.tsx', add: 120, del: 34, s: 'M' }, { path: 'src/styles/app.css', add: 48, del: 6, s: 'M' }, { path: 'CHANGELOG.md', add: 22, del: 0, s: 'M' }],
-    kids: ['feat/branch-tree', 'fix/stale-remote', 'feat/commit-folds'],
+    kids: ['feat/branch-tree', 'fix/stale-remote', 'feat/tree-keys', 'feat/diff-tokens', 'feat/commit-folds'],
   },
   'feat/branch-tree': {
-    name: 'feat/branch-tree', kind: 'feat', role: 'branch', base: 'release/0.6.0', author: ME, ahead: 4, behind: 0, stashes: 2,
+    name: 'feat/branch-tree', kind: 'feat', role: 'branch', base: 'release/0.6.0', author: ME, ahead: 4, behind: 0, stashes: 2, ticket: 'WEB-212',
     wip: [{ path: 'src/screens/BranchTree.tsx', add: 42, del: 6, s: 'M' }, { path: 'src/styles/app.css', add: 18, del: 0, s: 'M' }],
     files: [{ path: 'src/screens/BranchTree.tsx', add: 96, del: 21, s: 'M' }, { path: 'src/lib/path.ts', add: 64, del: 0, s: 'A' }, { path: 'src/styles/app.css', add: 30, del: 4, s: 'M' }],
   },
   // An agent is at work on it, in its worktree (src/components/demo/agents.tsx).
   'fix/stale-remote': {
-    name: 'fix/stale-remote', kind: 'fix', role: 'branch', base: 'release/0.6.0', author: 'Jules Laurent', ahead: 2, behind: 2, wip: [], wt: true,
+    name: 'fix/stale-remote', kind: 'fix', role: 'branch', base: 'release/0.6.0', author: 'Jules Laurent', ahead: 2, behind: 2, wip: [], wt: true, ticket: 'WEB-218',
     files: [{ path: 'crates/core/src/git.rs', add: 14, del: 9, s: 'M' }],
   },
+  // Claude at work in their own worktrees (src/components/demo/agents.tsx): done with changes to merge, and asking a question.
+  'feat/tree-keys': {
+    name: 'feat/tree-keys', kind: 'feat', role: 'branch', base: 'release/0.6.0', author: ME, ahead: 3, behind: 0, wt: true,
+    wip: [{ path: 'src/screens/BranchTree.tsx', add: 18, del: 2, s: 'M' }, { path: 'src/lib/keys.ts', add: 6, del: 0, s: 'M' }],
+    files: [{ path: 'src/screens/BranchTree.tsx', add: 54, del: 8, s: 'M' }, { path: 'src/lib/keys.ts', add: 12, del: 0, s: 'A' }, { path: 'src/styles/app.css', add: 3, del: 0, s: 'M' }],
+  },
+  'feat/diff-tokens': {
+    name: 'feat/diff-tokens', kind: 'feat', role: 'branch', base: 'release/0.6.0', author: ME, ahead: 2, behind: 1, wt: true, wip: [],
+    files: [{ path: 'src/styles/app.css', add: 14, del: 6, s: 'M' }, { path: 'src/lib/themes.ts', add: 9, del: 0, s: 'M' }],
+  },
   'feat/commit-folds': { name: 'feat/commit-folds', kind: 'feat', role: 'branch', base: 'release/0.6.0', author: ME, ahead: 0, behind: 0, wip: [], files: [], merged: true },
-  'feat/agent-pane': { name: 'feat/agent-pane', kind: 'feat', role: 'branch', base: 'main', author: 'Riya Kapoor', ahead: 0, behind: 13, wip: [], files: [] },
+  'feat/agent-pane': { name: 'feat/agent-pane', kind: 'feat', role: 'branch', base: 'main', author: 'Riya Kapoor', ahead: 0, behind: 13, wip: [], files: [], ticket: 'WEB-221' },
+  // Claude started it from its ticket a minute ago: still working, nothing committed yet.
+  'feat/author-filter': { name: 'feat/author-filter', kind: 'feat', role: 'branch', base: 'main', author: ME, ahead: 0, behind: 0, wip: [], files: [], wt: true, ticket: 'WEB-224' },
   'feat/old-sidebar': {
     name: 'feat/old-sidebar', kind: 'feat', role: 'branch', base: 'main', author: 'Riya Kapoor', ahead: 3, behind: 31, idle: 41, wip: [],
     files: [{ path: 'src/components/Sidebar.tsx', add: 88, del: 0, s: 'A' }, { path: 'src/styles/app.css', add: 24, del: 3, s: 'M' }],
@@ -106,6 +121,15 @@ const LOG: Record<string, Commit[]> = {
   'fix/stale-remote': [
     { sha: '3d7c9a2', subject: 'Test pruning of stale remote refs', author: 'Jules Laurent', when: '1h ago', files: [ch('crates/core/src/git.rs', 4, 2)] },
     { sha: 'b6e2f15', subject: 'Drop remote refs that are gone on fetch', author: 'Jules Laurent', when: '3h ago', files: [ch('crates/core/src/git.rs', 10, 7)] },
+  ],
+  'feat/tree-keys': [
+    { sha: '4b8e1d6', subject: 'Keep focus on the row after a checkout', author: ME, when: '40m ago', files: [ch('src/screens/BranchTree.tsx', 14, 3)] },
+    { sha: 'f02c7a9', subject: 'Fold and unfold child branches with the arrow keys', author: ME, when: '1h ago', files: [ch('src/screens/BranchTree.tsx', 28, 5), ch('src/styles/app.css', 3, 0)] },
+    { sha: '7d5a3e0', subject: 'Move between rows with the arrow keys', author: ME, when: '2h ago', files: [ch('src/screens/BranchTree.tsx', 12, 0), ch('src/lib/keys.ts', 12, 0, 'A')] },
+  ],
+  'feat/diff-tokens': [
+    { sha: 'e6a90b2', subject: 'Add diff tokens to the dark themes', author: ME, when: '1d ago', files: [ch('src/lib/themes.ts', 9, 0)] },
+    { sha: '2f71c4d', subject: 'Read diff colors from theme tokens', author: ME, when: '1d ago', files: [ch('src/styles/app.css', 14, 6)] },
   ],
   'feat/old-sidebar': [
     { sha: 'c41f0a8', subject: 'Collapse the sidebar to icons', author: 'Riya Kapoor', when: 'Oct 8', files: [ch('src/components/Sidebar.tsx', 40, 0), ch('src/styles/app.css', 24, 3)] },
@@ -476,6 +500,9 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
   // The worktrees view, shown over the project's page, which stays as it was left (nav.inWorktrees), and the row a link picks there.
   const [wt, setWt] = useState(false);
   const [wtPick, setWtPick] = useState<{ key: string }>();
+  // A PR or a ticket picked on the map, opened on its page.
+  const [prPick, setPrPick] = useState<{ n: number }>();
+  const [tkPick, setTkPick] = useState<{ key: string }>();
   const view = wt ? 'worktrees' : page;
   // Pages mount on their first visit and stay: their state, and the agents they show, carry on while you look elsewhere.
   const [seen, setSeen] = useState(['workspace']);
@@ -525,6 +552,8 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
     if (p !== 'worktrees') setPage(p);
     setSeen((s) => (s.includes(p) ? s : [...s, p]));
   };
+  const openPr = (n: number) => (setPrPick({ n }), go('prs'));
+  const openTicket = (key: string) => (setTkPick({ key }), go('tickets'));
 
   // The card floats over the map's top right unless the demo is narrow, as phones show it: then it sits above the map.
   const cardRoom = () => (!phone && (root.current?.clientWidth ?? 0) > 720 ? CARD_ROOM : 0);
@@ -760,11 +789,12 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
     worktree: (n) => demo.openWorktree(keyOf('acme-web', n)),
     stashes: (n) => flash(`${bs[n].stashes} stashes set aside on ${n}. In the app they list in place of its files, to pop, apply or drop`),
     tag: (t) => flash(`Checked out ${t} (detached HEAD)`),
+    pr: openPr,
   };
 
   // The search marks matching branches and steps through them, hiding none: tiles and the merged chips under them, in order.
   const q = finding ? query.trim().toLowerCase() : '';
-  const hits = q ? layout.tiles.flatMap((t) => [t.b, ...t.merged].filter((x) => x.name.toLowerCase().includes(q) || labelOf(x.name).includes(q)).map((x) => x.name)) : [];
+  const hits = q ? layout.tiles.flatMap((t) => [t.b, ...t.mergedAll].filter((x) => x.name.toLowerCase().includes(q) || labelOf(x.name).includes(q)).map((x) => x.name)) : [];
   const hit = hits.length ? hits[Math.min(hitAt, hits.length - 1)] : undefined;
   useEffect(() => {
     if (hit) scrollTo(hit, true);
@@ -859,6 +889,10 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
       go('worktrees');
     },
     wtPick,
+    openPr,
+    prPick,
+    openTicket,
+    tkPick,
     branches: bs,
     logOf,
     sel,
@@ -999,6 +1033,7 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
     const name = c.role === 'release' ? `${labelOf(c.name)} · ${c.name}` : kind ? c.name.slice(kind.length + 1) : c.name;
     // With no uncommitted work, the files under the card wait for this button (filesButton in Workspace.tsx).
     const filesShown = mapFiles === c.name;
+    const pr = openPrOf(c.name);
     return (
       <aside className="map-card" aria-label={`Selected branch ${c.name}`} data-folded={folded || undefined}>
         <div className="map-card-head">
@@ -1027,6 +1062,28 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
             <Icon name="chevronDown" size={14} className="chev" />
           </button>
         </div>
+        {/* Its pull request and ticket, each opening its page. */}
+        {(pr || c.ticket) && (
+          <div className="map-card-keys">
+            {pr && (
+              <button className="map-card-pr" aria-label={`Open PR #${pr.number}, ${PR_TONE_LABEL[pr.tone]}`} title={`PR #${pr.number}, ${PR_TONE_LABEL[pr.tone]}. Click to open it.`} onClick={() => openPr(pr.number)}>
+                <span className="map-card-pr-n">#{pr.number}</span>
+                <span className="map-card-pr-s">
+                  <i className="pr-dot" data-tone={pr.tone} />
+                  {PR_TONE_LABEL[pr.tone]}
+                </span>
+                <Icon name="eye" size={12} className="map-card-open" />
+              </button>
+            )}
+            {c.ticket && (
+              <button className="map-card-key" aria-label={`Open ticket ${c.ticket}`} title={`Ticket ${c.ticket}. Click to open it.`} onClick={() => openTicket(c.ticket!)}>
+                <span className="map-card-pr-n">{c.ticket}</span>
+                Ticket
+                <Icon name="eye" size={12} className="map-card-open" />
+              </button>
+            )}
+          </div>
+        )}
         {!folded && (
           <>
             <div className="map-big">
@@ -1459,7 +1516,7 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
                   {/* Room on the right for the card too, so a tile can be scrolled out from under it. */}
                   <div className="map-size" style={{ width: layout.W * zoom + (phone ? 0 : CARD_ROOM), height: layout.H * zoom, minWidth: '100%', minHeight: '100%' }}>
                     <div className="map-layer" style={{ width: layout.W, height: layout.H, transform: zoom === 1 ? undefined : `scale(${zoom})` }}>
-                      <MapLayer layout={layout} head={head} shown={shownSel} toggles={toggles} q={q} hit={hit} agentOf={agentOf} logOf={logOf} labelOf={labelOf} on={handlers} />
+                      <MapLayer layout={layout} head={head} shown={shownSel} toggles={toggles} q={q} hit={hit} agentOf={agentOf} prOf={openPrOf} logOf={logOf} labelOf={labelOf} on={handlers} />
                     </div>
                   </div>
                 </div>

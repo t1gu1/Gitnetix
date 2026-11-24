@@ -1,6 +1,7 @@
 import { Fragment, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react';
 import { Icon } from '../../../../src/components/Icon';
 import { plural } from '../../../../src/lib/format';
+import { PR_TONE_LABEL, type PrTone } from '../../../../src/lib/prStatus';
 import type { Branch, Commit } from '../HeroDemo';
 import { Avatar, Modal } from './ui';
 
@@ -14,8 +15,6 @@ import { Avatar, Modal } from './ui';
 export const BEHIND_LIMIT = 25;
 /** Commits a box lists under it; the rest are counted, listed once "see all" is open. */
 const COMMITS_SHOWN = 4;
-/** Merged branches listed under their base before "+N more". */
-const MERGED_SHOWN = 4;
 /** Shipped releases listed on the trunk before "+N earlier releases". */
 const SHIPPED_SHOWN = 10;
 /** The trunk: a hairline at TRUNK_X, shipped releases on it as stations PITCH apart (oldest on top), then the default branch. */
@@ -32,10 +31,11 @@ const REL_H = 74;
 /** Floating commits: this far under their box, one row each (and the "see all" row). */
 const FLOAT_TOP = 6;
 const ROW = 22;
-/** Merged branches: small stations under the commits, MERGED_ROW apart; their foot (more, clean up) after them. */
+/** Merged branches: one small station under the commits, folded to "N merged branches"; opened, a row each, MERGED_ROW apart. */
 const MERGED_TOP = 24;
-const MERGED_ROW = 26;
-const FOOT_H = 26;
+const MERGED_ROW = 24;
+/** Commits hang this much further right when the merged line runs down past them, so their avatars clear it. */
+const RAIL_GAP = 6;
 /** A shipped release's commits, unfolded under its station: two lines each. */
 const SHIPPED_LIST_TOP = 14;
 const SHIPPED_COMMIT_H = 32;
@@ -53,6 +53,8 @@ export const PREFS: MapPrefs = { who: 'all', merged: true, behind: true, shipped
 /** A release shipped from the trunk: its tag, the day it shipped, and the commits it shipped (newest first). */
 export type Shipped = { tag: string; date: string; commits: Commit[] };
 export type AgentInfo = { label: string; state?: 'working' | 'waiting' | 'done' };
+/** A branch's open pull request and its status (prTone in src/lib/prStatus.ts). */
+export type BranchPr = { number: number; tone: PrTone };
 
 export type Tile = {
   b: Branch;
@@ -69,14 +71,13 @@ export type Tile = {
   /** Its newest commits float under the box, the earlier ones too when `all`. */
   open: boolean;
   all: boolean;
-  /** Merged branches hung under it as small stations, how many more there are, and the ones a clean up may delete. */
+  /** Merged branches listed under it (none while folded), and the ones a clean up may delete. */
   merged: Branch[];
-  more: number;
   removable: Branch[];
-  /** Its first merged station's middle, and the top of the row under the last one (more, clean up). */
+  /** Every merged branch under it: the folded line counts them. */
+  mergedAll: Branch[];
+  /** The merged line's station middle; its rows follow MERGED_ROW apart. */
   mergedY: number;
-  footY: number;
-  foot: boolean;
 };
 export type MapLayout = ReturnType<typeof layoutMap>;
 
@@ -84,7 +85,7 @@ export type MapLayout = ReturnType<typeof layoutMap>;
  * Lays the map out like layoutMap in BranchMap.tsx. The trunk is a vertical line: the shipped releases on it as stations,
  * oldest on top, then the default branch's station, its box beside it. Every other branch is a box in the column of its
  * level, level with the middle of its children; its newest commits float under it, its merged branches hang under those.
- * `toggles`: boxes listing all their commits (`all:<name>`), merged groups shown whole (`merged:<name>`), every shipped
+ * `toggles`: boxes listing all their commits (`all:<name>`), merged lines opened (`merged:<name>`), every shipped
  * release (`shipped:all`), a shipped release's commits unfolded (`rel:<tag>`).
  */
 export function layoutMap(bs: Record<string, Branch>, head: string, prefs: MapPrefs, me: string, toggles: ReadonlyMap<string, boolean>, shipped: Shipped[]) {
@@ -120,14 +121,12 @@ export function layoutMap(bs: Record<string, Branch>, head: string, prefs: MapPr
   const mergedOf = (b: Branch) => (prefs.merged ? kids(b.name).filter((k) => chip(k) && (prefs.who === 'all' || mine(k))) : []);
   // The checked-out branch stays put.
   const removableOf = (all: Branch[]) => all.filter((c) => c.name !== head);
-  const shownMerged = (b: Branch, all: Branch[]) => (toggles.get(`merged:${b.name}`) ? all.length : Math.min(all.length, MERGED_SHOWN));
-  // The whole block: the box, its commits, its merged stations and their foot.
+  const shownMerged = (b: Branch, all: Branch[]) => (toggles.get(`merged:${b.name}`) ? all.length : 0);
+  // The whole block: the box, its commits, its merged line and the rows it opens to.
   const blockH = (b: Branch) => {
     const all = mergedOf(b);
-    const shown = shownMerged(b, all);
-    const foot = all.length > shown || removableOf(all).length > 0;
     const top = boxH(b) + listH(b);
-    return all.length ? top + MERGED_TOP + (shown - 1) * MERGED_ROW + 12 + (foot ? 4 + FOOT_H : 0) : top;
+    return all.length ? top + MERGED_TOP + shownMerged(b, all) * MERGED_ROW + 12 : top;
   };
 
   // Under the "Shipped from" label (and "+N earlier releases"), a station per release; an unfolded one pushes the next down by its list.
@@ -176,8 +175,7 @@ export function layoutMap(bs: Record<string, Branch>, head: string, prefs: MapPr
     const mergedY = y + h + list + MERGED_TOP;
     const t: Tile = {
       b, d, x: colX(d), y, w: colW(d), h, a, ghost: ghost.has(b.name), open: list > 0, all: !!toggles.get(`all:${b.name}`),
-      merged: all.slice(0, shown), more: all.length - shown, removable,
-      mergedY, footY: mergedY + (shown - 1) * MERGED_ROW + 16, foot: all.length > shown || removable.length > 0,
+      merged: all.slice(0, shown), removable, mergedAll: all, mergedY,
     };
     at.set(b.name, t);
     tiles.push(t);
@@ -241,7 +239,7 @@ const age = (when: string) => when.replace(' ago', '').replace('just now', 'now'
 export type MapHandlers = {
   select: (n: string) => void;
   checkout: (n: string) => void;
-  /** A fold: all of a box's commits (`all:`), a merged group (`merged:`), a shipped release's commits (`rel:`), every release (`shipped:all`). */
+  /** A fold: all of a box's commits (`all:`), a merged line (`merged:`), a shipped release's commits (`rel:`), every release (`shipped:all`). */
   toggle: (key: string, on: boolean) => void;
   /** A commit listed under a box, or shipped with a release (on the trunk): look at its code. */
   look: (n: string, c: Commit) => void;
@@ -252,6 +250,8 @@ export type MapHandlers = {
   worktree: (n: string) => void;
   stashes: (n: string) => void;
   tag: (tag: string) => void;
+  /** A branch's pull request, on the Pull requests page. */
+  pr: (n: number) => void;
 };
 
 type LayerProps = {
@@ -265,6 +265,7 @@ type LayerProps = {
   q?: string;
   hit?: string;
   agentOf?: (n: string) => AgentInfo | undefined;
+  prOf?: (n: string) => BranchPr | undefined;
   logOf: (b: Branch) => Commit[];
   labelOf: (n: string) => string;
   on?: MapHandlers;
@@ -280,7 +281,7 @@ function marked(name: string, q: string | undefined, at: boolean): ReactNode {
 const agentWords = (a: AgentInfo) => (a.state === 'working' ? 'working' : a.state === 'waiting' ? 'waiting for you' : a.state === 'done' ? 'done, ready to review' : 'idle');
 
 /** The map itself, inside `.map-layer`: columns, the trunk and its stations, lines, boxes and what hangs off them. */
-export function MapLayer({ layout, head, shown, toggles, q, hit, agentOf, logOf, labelOf, on }: LayerProps) {
+export function MapLayer({ layout, head, shown, toggles, q, hit, agentOf, prOf, logOf, labelOf, on }: LayerProps) {
   const { tiles, at } = layout;
   // The route: the checked-out branch's line, from the trunk's station to it.
   const route = new Set(lineageOf(layout, head));
@@ -301,6 +302,8 @@ export function MapLayer({ layout, head, shown, toggles, q, hit, agentOf, logOf,
   const cols = Array.from({ length: layout.depth + 1 }, (_, d) => (d === 0 ? 'Trunk' : d === 1 ? `Releases & straight to ${trunk?.b.name ?? 'main'}` : d === 2 ? 'Branches' : 'Stacked'));
   const tip = layout.shippedAll[0]?.tag;
   const releases = tiles.filter((x) => x.b.role === 'release').length;
+  // Where a box's commits start: further right when its merged line runs down past their avatars.
+  const floatX = (t: Tile) => (t.b.role === 'trunk' ? 14 : t.mergedAll.length ? 18 + RAIL_GAP : 18);
 
   return (
     <>
@@ -316,7 +319,7 @@ export function MapLayer({ layout, head, shown, toggles, q, hit, agentOf, logOf,
         {trunk && <path d={`M${TRUNK_X} ${trunk.y + trunk.a}H${trunk.x}`} data-line="head" />}
         {edges.map((e, i) => <path key={i} d={e.d} data-line={e.cls || undefined} />)}
         {/* A box's merged branches hang on a hairline dropping from its station; the default branch's sit on the trunk. */}
-        {tiles.map((t) => t.merged.length > 0 && t.b.role !== 'trunk' && <path key={`m${t.b.name}`} d={`M${t.x} ${t.y + t.a}V${t.mergedY + (t.merged.length - 1) * MERGED_ROW}`} />)}
+        {tiles.map((t) => t.mergedAll.length > 0 && t.b.role !== 'trunk' && <path key={`m${t.b.name}`} d={`M${t.x} ${t.y + t.a}V${t.mergedY}`} />)}
       </svg>
 
       {trunk && layout.shipped.length > 0 && (
@@ -366,39 +369,40 @@ export function MapLayer({ layout, head, shown, toggles, q, hit, agentOf, logOf,
       {trunk && <span className="map-stn" data-main="" style={{ left: TRUNK_X, top: trunk.y + trunk.a }} />}
 
       {tiles.map((t) => {
-        if (!t.merged.length && !t.foot) return null;
+        if (!t.mergedAll.length) return null;
         // The default branch's merged branches sit on the trunk; any other box's on the hairline under its station.
         const sx = t.b.role === 'trunk' ? TRUNK_X : t.x;
+        const open = t.merged.length > 0;
+        const w = t.x + t.w - sx - 14;
         return (
           <Fragment key={`mg${t.b.name}`}>
-            {t.merged.map((m, i) => (
-              <Fragment key={m.name}>
-                <span className="map-stn" data-small="" style={{ left: sx, top: t.mergedY + i * MERGED_ROW }} />
-                <button
-                  className="map-merged"
-                  aria-pressed={m.name === shown}
-                  aria-label={`Select ${m.name}, merged`}
-                  style={{ left: sx + 14, top: t.mergedY + i * MERGED_ROW - 12, maxWidth: t.x + t.w - sx - 14 }}
-                  onClick={() => on?.select(m.name)}
-                  onContextMenu={(e) => on?.menu(m.name, e)}
-                >
-                  <Icon name="check" size={12} />
-                  <span className="mono ellipsis">{marked(m.name, q, hit === m.name)}</span>
-                  <span className="tag">Merged</span>
+            <span className="map-stn" data-small="" style={{ left: sx, top: t.mergedY }} />
+            <div className="map-merged-head" style={{ left: sx + 14, top: t.mergedY - 12, width: w }}>
+              <button className="map-merged-fold" aria-expanded={open} onClick={() => on?.toggle(`merged:${t.b.name}`, !open)}>
+                <Icon name="check" size={12} />
+                {branches(t.mergedAll.length, 'merged branch')}
+                <Icon name="chevronDown" size={12} className="chev" />
+              </button>
+              {t.removable.length > 0 && (
+                <button className="map-clean" title={`Delete the ${branches(t.removable.length, 'merged branch')} under ${labelOf(t.b.name)}, locally and on origin`} onClick={() => on?.cleanup(t.b.name, t.removable)}>
+                  <Icon name="brush" size={12} />
+                  Clean up
                 </button>
-              </Fragment>
+              )}
+            </div>
+            {t.merged.map((m, i) => (
+              <button
+                key={m.name}
+                className="map-merged"
+                aria-pressed={m.name === shown}
+                aria-label={`Select ${m.name}, merged`}
+                style={{ left: sx + 14, top: t.mergedY + (i + 1) * MERGED_ROW - 12, width: w }}
+                onClick={() => on?.select(m.name)}
+                onContextMenu={(e) => on?.menu(m.name, e)}
+              >
+                <span className="mono ellipsis">{marked(m.name, q, hit === m.name)}</span>
+              </button>
             ))}
-            {t.foot && (
-              <span className="map-merged-foot" style={{ left: sx + 14, top: t.footY }}>
-                {t.more > 0 && <button className="map-more" onClick={() => on?.toggle(`merged:${t.b.name}`, true)}>+{t.more} more merged</button>}
-                {t.merged.length > MERGED_SHOWN && <button className="map-more" onClick={() => on?.toggle(`merged:${t.b.name}`, false)}>Show fewer</button>}
-                {t.removable.length > 0 && (
-                  <button className="btn map-clean-big" title={`Delete the ${branches(t.removable.length, 'merged branch')} under ${labelOf(t.b.name)}, locally and on origin`} onClick={() => on?.cleanup(t.b.name, t.removable)}>
-                    Clean up merged
-                  </button>
-                )}
-              </span>
-            )}
           </Fragment>
         );
       })}
@@ -414,6 +418,7 @@ export function MapLayer({ layout, head, shown, toggles, q, hit, agentOf, logOf,
             q={q}
             hitAt={hit === t.b.name}
             agent={agentOf?.(t.b.name)}
+            pr={prOf?.(t.b.name)}
             log={logOf(t.b)}
             labelOf={labelOf}
             tip={t.b.role === 'trunk' ? tip : undefined}
@@ -422,7 +427,7 @@ export function MapLayer({ layout, head, shown, toggles, q, hit, agentOf, logOf,
             on={on}
           />
           {t.open && (
-            <div className="map-float" style={{ left: t.x + (t.b.role === 'trunk' ? 14 : 18), top: t.y + t.h + FLOAT_TOP, width: t.w - (t.b.role === 'trunk' ? 14 : 18) }}>
+            <div className="map-float" style={{ left: t.x + floatX(t), top: t.y + t.h + FLOAT_TOP, width: t.w - floatX(t) }}>
               <TileCommits b={t.b} log={logOf(t.b)} all={t.all} current={t.b.name === head} on={on} />
             </div>
           )}
@@ -457,7 +462,7 @@ export function MapLayer({ layout, head, shown, toggles, q, hit, agentOf, logOf,
  * and one info row (its agent, uncommitted work and other facts, never commits). Its station sits on its left border where
  * its line comes in, its "+" on its right where lines leave; its commits float under it, drawn apart (TileCommits).
  */
-function TileView({ t, head, selected, onRoute, stale, q, hitAt, agent, log, labelOf, tip, releases, quietAdd, on }: { t: Tile; head: string; selected: boolean; onRoute: boolean; stale: boolean; q?: string; hitAt: boolean; agent?: AgentInfo; log: Commit[]; labelOf: (n: string) => string; tip?: string; releases: number; quietAdd: boolean; on?: MapHandlers }) {
+function TileView({ t, head, selected, onRoute, stale, q, hitAt, agent, pr, log, labelOf, tip, releases, quietAdd, on }: { t: Tile; head: string; selected: boolean; onRoute: boolean; stale: boolean; q?: string; hitAt: boolean; agent?: AgentInfo; pr?: BranchPr; log: Commit[]; labelOf: (n: string) => string; tip?: string; releases: number; quietAdd: boolean; on?: MapHandlers }) {
   const { b } = t;
   const current = b.name === head;
   const trunk = b.role === 'trunk';
@@ -552,13 +557,21 @@ function TileView({ t, head, selected, onRoute, stale, q, hitAt, agent, log, lab
           {trunk && !current && <span className="tag">Default</span>}
           {b.tag && <span className={b.tag === 'Next' ? 'tag inv' : 'tag'}>{b.tag}</span>}
         </span>
-        <span className="map-info">
-          {info.map((x, i) => (
-            <Fragment key={i}>
-              {i > 0 && ' · '}
-              {x}
-            </Fragment>
-          ))}
+        <span className="map-foot">
+          <span className="map-info">
+            {info.map((x, i) => (
+              <Fragment key={i}>
+                {i > 0 && ' · '}
+                {x}
+              </Fragment>
+            ))}
+          </span>
+          {pr && (
+            <button className="map-pr" title={`PR #${pr.number}, ${PR_TONE_LABEL[pr.tone]}. Click to open it.`} aria-label={`Open PR #${pr.number}, ${PR_TONE_LABEL[pr.tone]}`} onClick={() => on?.pr(pr.number)}>
+              <i className="pr-dot" data-tone={pr.tone} />
+              PR #{pr.number}
+            </button>
+          )}
         </span>
       </div>
       {/* Starts a branch off it, where its lines leave. */}

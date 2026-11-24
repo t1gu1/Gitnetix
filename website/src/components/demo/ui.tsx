@@ -18,6 +18,12 @@ export type Demo = {
   openWorktree: (key: string) => void;
   /** The row it last asked for: a new object each time, so the same row is picked again. */
   wtPick?: { key: string };
+  /** Pull requests with this one open, from a PR on the branch map; a new object each time, like `wtPick`. */
+  openPr: (n: number) => void;
+  prPick?: { n: number };
+  /** Tickets with this one open, from a ticket key on the branch map. */
+  openTicket: (key: string) => void;
+  tkPick?: { key: string };
   branches: Record<string, Branch>;
   /** A branch's commits, newest first: those its base doesn't have, or a trunk's recent history. */
   logOf: (b: Branch) => Commit[];
