@@ -14,6 +14,14 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (App)
+
+- Show a dot when a newer release is available, and check for updates periodically.
+
+### Removed (App)
+
+- Remove the look-at-code button from the selected card on the branch map.
+
 ## [0.36.3] - 2026-11-24
 
 ### Changed (App)
