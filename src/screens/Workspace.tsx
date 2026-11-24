@@ -3318,13 +3318,15 @@ function CloseWorktreeModal({ session: s, finish, onClose, inline }: { session: 
       </label>
     </>
   );
+  // The inline card names the chosen option; the modal keeps the general label.
+  const keepOnLabel = inline && then === "continue";
+  // Stacked, Finish on top, so each label shows in full.
   const buttons = (
-    <>
-      <button type="button" className="btn btn-md btn-danger" style={{ flex: "1 1 0" }} data-tip={`Delete the worktree, its uncommitted changes and the local ${s.branch} branch`} onClick={() => setDiscarding(true)}>Cancel and Delete all</button>
-      {/* Each button takes half the footer. */}
-      <span className="split-btn" style={{ display: "flex", flex: "1 1 0", minWidth: 0 }}>
-        <button type="button" className={`btn btn-md btn-primary${then === "merge" ? " split-main" : ""}`} style={{ flex: "1 1 auto", minWidth: 0 }} onClick={() => { finish[then](s, sw, into); onClose(); }}>
-          <span className="ellipsis">{then === "merge" && target ? `Finish and merge into ${target}…` : `Finish with the agent / worktree${then === "merge" ? "…" : ""}`}</span>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column-reverse", gap: 8 }}>
+      <button type="button" className="btn btn-md btn-danger" data-tip={`Delete the worktree, its uncommitted changes and the local ${s.branch} branch`} onClick={() => setDiscarding(true)}>Cancel and Delete all</button>
+      <span className="split-btn">
+        <button type="button" className={`btn btn-md btn-primary${then === "merge" ? " split-main" : ""}`} style={{ flex: "1 1 auto", minWidth: 0 }} data-tip={keepOnLabel ? "Finish with the agent / worktree" : undefined} onClick={() => { finish[then](s, sw, into); onClose(); }}>
+          <span className="ellipsis">{then === "merge" && target ? `Finish and merge into ${target}…` : keepOnLabel ? "Finish & Continue on branch" : `Finish with the agent / worktree${then === "merge" ? "…" : ""}`}</span>
         </button>
         {then === "merge" && (
           <button
@@ -3354,7 +3356,7 @@ function CloseWorktreeModal({ session: s, finish, onClose, inline }: { session: 
           onClose={() => setPick(null)}
         />
       )}
-    </>
+    </div>
   );
   // Cancelling the confirmation brings these close options back.
   if (discarding) return <DiscardWorktreeModal branch={s.branch} path={s.cwd} onClose={() => setDiscarding(false)} onConfirm={() => { finish.discard(s); onClose(); }} />;

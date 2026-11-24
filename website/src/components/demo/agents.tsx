@@ -617,10 +617,10 @@ export function FinishCard({ s }: { s: Session }) {
         <input type="checkbox" checked={sw} onChange={() => setSw(!sw)} />
         <span>Switch to {then === 'merge' ? 'the branch it merges into' : <span className="mono">{s.branch}</span>}</span>
       </label>
-      <div className="ag-finish-foot">
-        <button type="button" className="btn btn-md btn-danger" style={{ flex: '1 1 0' }} title={`Delete the worktree, its uncommitted changes and the local ${s.branch} branch`} onClick={() => setDiscarding(true)}>Cancel and Delete all</button>
-        <button type="button" className="btn btn-md btn-primary" style={{ flex: '1 1 0' }} onClick={() => finish(s.key, then, sw)}>
-          {then === 'merge' ? `Finish and merge into ${s.base}` : 'Finish with the agent / worktree'}
+      <div className="ag-finish-foot" style={{ flexDirection: 'column-reverse' }}>
+        <button type="button" className="btn btn-md btn-danger" title={`Delete the worktree, its uncommitted changes and the local ${s.branch} branch`} onClick={() => setDiscarding(true)}>Cancel and Delete all</button>
+        <button type="button" className="btn btn-md btn-primary" title={then === 'merge' ? undefined : 'Finish with the agent / worktree'} onClick={() => finish(s.key, then, sw)}>
+          {then === 'merge' ? `Finish and merge into ${s.base}` : 'Finish & Continue on branch'}
         </button>
       </div>
       {discarding && <DiscardModal s={s} onClose={() => setDiscarding(false)} />}
