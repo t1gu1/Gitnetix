@@ -353,6 +353,7 @@ a:hover {
   margin-left: 12px;
 }
 .profile-btn {
+  position: relative;
   align-self: stretch;
   display: grid;
   place-items: center;
@@ -370,6 +371,7 @@ a:hover {
 }
 /* Settings, a flush full-height cell before the profile button. */
 .hdr-gear {
+  position: relative;
   align-self: stretch;
   display: grid;
   place-items: center;
@@ -384,6 +386,37 @@ a:hover {
 .hdr-gear:hover {
   background: var(--raised);
   color: var(--fg);
+}
+/* A newer release waits: a dot on the gear's corner, before the menu's update button, after the profile menu's Settings,
+   and on the avatar's corner where no gear shows (no project open, a narrow window). */
+.update-dot {
+  display: inline-block;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  vertical-align: middle;
+  background: var(--accent);
+}
+.hdr-gear > .update-dot,
+.profile-btn > .update-dot {
+  position: absolute;
+  top: calc(50% - 10px);
+  left: calc(50% + 3px);
+  box-shadow: 0 0 0 2px var(--bg);
+}
+.profile-btn > .update-dot {
+  top: calc(50% - 13px);
+  left: calc(50% + 7px);
+}
+.hdr-gear + .profile-btn > .update-dot {
+  display: none;
+}
+:is(.hdr-gear, .profile-btn):is(:hover, [aria-expanded="true"]) > .update-dot {
+  box-shadow: 0 0 0 2px var(--raised);
+}
+.ctx-menu .update-dot {
+  margin-left: 6px;
 }
 /* Hover shows a ring only: scaling the avatar to a fractional size knocks its emoji off center in WebKit. */
 .profile-btn > .profile-avatar {
@@ -2925,26 +2958,6 @@ button.map-line-chip[aria-disabled] {
 }
 .map-card-tags > .map-kind {
   margin-right: 2px;
-}
-/* The name opens the branch full screen, like "Look at the code". */
-.map-card-look {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-.map-card-look:disabled {
-  cursor: default;
-}
-.map-card-tail {
-  white-space: nowrap;
-}
-.map-card-eye {
-  margin-left: 6px;
-  vertical-align: -2px;
 }
 /* The branch's pull request and ticket: two compact boxes in a row, the value over its label. */
 .map-card-keys {
@@ -12915,6 +12928,9 @@ label.sheet-row {
   }
   .hide-narrow {
     display: none !important;
+  }
+  .hdr-gear + .profile-btn > .update-dot {
+    display: inline-block;
   }
   /* Pull requests and tickets: the detail pane goes without the list's toolbar. */
   .pr-bar[data-detail],

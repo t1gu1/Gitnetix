@@ -97,6 +97,7 @@ These rules keep the suite consistent. Follow them when a case moves from `To au
 | BR-20 | Stage, unstage, discard files and single lines. | Each file and line moves to the side it was sent to. | Auto | `release_flow.rs::stage_unstage_discard`, `line_staging.rs::picked_lines_move_between_sides` |
 | BR-21 | Stash a branch's changes, list, apply, drop. | The changes come back where they were. | Auto | `release_flow.rs::stash_flow` |
 | BR-22 | main ships to a tagged `prod` by merge commits, so prod is behind main. staging sits level with main, dev further behind than prod. Then prod catches up with main. Merge main with no target. | The map starts from prod (no parent, its latest tag shown) with main under it. staging and dev stay under main. Level with main, prod still goes first (prod, preprod, staging, main/master, the others). Main's actions keep it as the default branch: the merge is refused, nothing goes into prod. | Auto | `branch_regression.rs::br22_least_advanced_trunk_is_the_root` |
+| BR-23 | An old branch with no commits of its own and no parent given. main moves on past a tag, then a hotfix is cut from that tag. A second branch made with plain git on the hotfix's tip. | The old branch stays under main, so the "Update the branches under" dialog shown after rebasing the hotfix does not list it. The second branch goes under the hotfix. | Auto | `branch_regression.rs::br23_a_hotfix_does_not_take_in_old_branches` |
 
 ## Suggested actions (SA)
 

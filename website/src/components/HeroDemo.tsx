@@ -1002,7 +1002,6 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
   const card = (() => {
     const c = cb;
     const p = primary(c.name);
-    const look = lookItem(c);
     const ca = agentOf(c.name);
     const base = c.base ? labelOf(c.base) : '';
     const trunk = c.role === 'trunk';
@@ -1042,22 +1041,7 @@ export default function HeroDemo({ phone }: { phone?: boolean }) {
             {kind && <span className="map-kind">{kind}</span>}
             <BranchTags b={c} head={head} />
           </div>
-          {/* The name opens the branch full screen; folded, the eye says so. */}
-          <h3 className="mono">
-            <button className="map-card-look" title="Look at the code" onClick={() => openFocus(c.name, look)}>
-              {folded ? (
-                <>
-                  {name.slice(0, -4)}
-                  <span className="map-card-tail">
-                    {name.slice(-4)}
-                    <Icon name="eye" size={13} className="map-card-eye" />
-                  </span>
-                </>
-              ) : (
-                name
-              )}
-            </button>
-          </h3>
+          <h3 className="mono">{name}</h3>
           <button className="btn btn-icon map-card-fold" aria-expanded={!folded} aria-label={folded ? 'Show the selected branch' : 'Fold the selected branch'} onClick={() => setFolded(!folded)}>
             <Icon name="chevronDown" size={14} className="chev" />
           </button>

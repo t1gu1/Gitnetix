@@ -6,7 +6,7 @@ import type { Config, DialogPrefs, Project, UserProfile } from "../api/types";
 import { BranchTypesPage } from "../components/BranchTypes";
 import { Icon } from "../components/Icon";
 import { PageToolsSlot, SheetBox, SheetChoice, SheetLabel, SheetLink, SheetSwitch } from "../components/Sheet";
-import { checkUpdate, devVersion } from "../components/UpdatePrompt";
+import { checkUpdate, devVersion, useNewerRelease } from "../components/UpdatePrompt";
 import { DeleteProfile, ProfileAvatar, ProfileDialog, useProfiles } from "../components/Profiles";
 import { plural } from "../lib/format";
 import { useTermDefault } from "../components/Shell";
@@ -52,6 +52,7 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
     import("@tauri-apps/api/app").then(({ getVersion }) => getVersion()).then(setVersion, () => {});
   }, []);
   const [checking, setChecking] = useState(false);
+  const newer = useNewerRelease();
   const check = () => {
     setChecking(true);
     checkUpdate()
@@ -113,7 +114,8 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
           {view && <div className="hdr-tools" ref={setTools} />}
           {!view && isLocal && (
             <div className="hdr-tools">
-              <button className="btn btn-ghost btn-sm" disabled={checking} onClick={check}>
+              <button className="btn btn-ghost btn-sm" disabled={checking} onClick={check} data-tip={newer ? `Gitnetix ${newer.version} is available` : undefined}>
+                {newer && !checking && <span className="update-dot" aria-hidden />}
                 {checking ? "Checking…" : "Check and update"}
               </button>
             </div>

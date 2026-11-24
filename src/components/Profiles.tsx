@@ -15,6 +15,7 @@ import { GRAVATAR_KEY, useGravatar } from "./Avatar";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
 import { Icon } from "./Icon";
 import { Confirm, Modal, Seg } from "./ui";
+import { useNewerRelease } from "./UpdatePrompt";
 
 /** Avatars to pick from, after the default one. */
 const EMOJIS = ["🦊", "🐙", "🐼", "🦉", "🐳", "🐝", "🦄", "🐢", "🌵", "🍀", "🌙", "🔥", "⚡", "🚀", "🎨", "🎧", "🧪", "💼", "🏠", "☕", "👾", "🎮", "📚", "🌊"];
@@ -114,6 +115,7 @@ export function ProfileButton() {
   const { list, active, switchTo } = useProfiles();
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const [creating, setCreating] = useState(false);
+  const newer = useNewerRelease();
   if (!active) return null;
   const dark = nav.theme === "dark";
   const others = list.filter((p) => p.id !== active.id);
@@ -147,7 +149,7 @@ export function ProfileButton() {
     ),
     { id: "new", label: "New profile…", icon: "plus", run: () => setCreating(true) },
     "sep",
-    { id: "settings", label: "Settings", icon: "gear", hint: showKeys(keys.settings), run: () => nav.go({ name: "menu" }) },
+    { id: "settings", label: <>Settings{newer && <span className="update-dot" aria-hidden />}</>, text: "Settings", icon: "gear", hint: showKeys(keys.settings), run: () => nav.go({ name: "menu" }) },
     { id: "theme", label: dark ? "Light mode" : "Dark mode", icon: dark ? "sun" : "moon", run: () => nav.setThemePref(otherMode(resolveTheme(nav.themePref, nav.theme))) },
   ];
   return (
@@ -156,7 +158,7 @@ export function ProfileButton() {
         className="profile-btn"
         aria-haspopup="menu"
         aria-expanded={!!menu}
-        aria-label={`Profile ${active.name}, settings`}
+        aria-label={`Profile ${active.name}, settings${newer ? ", update available" : ""}`}
         data-tip={menu ? undefined : active.name}
         onClick={(e) => {
           const b = e.currentTarget.getBoundingClientRect();
@@ -164,6 +166,7 @@ export function ProfileButton() {
         }}
       >
         <ProfileAvatar profile={active} size={26} />
+        {newer && <span className="update-dot" aria-hidden />}
       </button>
       {menu && <ContextMenu {...menu} alignRight label="Profile" items={items} onClose={() => setMenu(null)} />}
       {creating && <ProfileDialog onClose={() => setCreating(false)} />}

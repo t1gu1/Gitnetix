@@ -2483,7 +2483,7 @@ fn plain_view(p: &Project, refs: &Refs, name: &str, parent: Option<String>) -> B
 }
 
 /// Bump when branch views are built differently, so saved ones are not reused.
-const VIEW_CACHE_VERSION: &str = "20";
+const VIEW_CACHE_VERSION: &str = "21";
 
 /// Most commits of its own a branch is looked through for the branch it was built on (see [`Gitnetix::built_on`]).
 const OWN_MAX: usize = 1000;
@@ -2972,7 +2972,8 @@ impl Gitnetix {
 
     /// The branch `name` merges into: an open release branch's base, the release
     /// it is attached to, the parent it was given, else the closest target by
-    /// history (fewest commits of its own, then fewest missing). None for the default branch.
+    /// history (fewest commits of its own, then fewest missing; with none of its own, the target it sits
+    /// on, else the most upstream one). None for the default branch.
     async fn parent_of(&self, p: &Project, git: &Git, refs: &Refs, default: &str, name: &str) -> Option<String> {
         if let Some(parent) = declared_parent(p, refs, default, name) {
             return parent;
@@ -3000,9 +3001,10 @@ impl Gitnetix {
             for (i, t) in targets.into_iter().enumerate().filter(|(_, t)| t != name) {
                 let Some(trev) = refs.rev(&t) else { continue };
                 let Ok((behind, ahead)) = refs.left_right(git, &trev, &rev).await else { continue };
-                // On a tie, work in progress belongs to the most specific target; a branch that
-                // already landed everywhere belongs to the most upstream one (shipped to main).
-                let key = (ahead, behind, if ahead == 0 { usize::MAX - i } else { i });
+                // On a tie, work in progress belongs to the most specific target. A branch with no commits of its own
+                // belongs to the target it sits on, else to the most upstream one (shipped to main): how far behind
+                // it is says nothing, a hotfix cut from an older tag would take in every old branch.
+                let key = if ahead == 0 { (0, u32::from(behind > 0), usize::MAX - i) } else { (ahead, behind, i) };
                 if best.as_ref().is_none_or(|(k, _)| key < *k) {
                     best = Some((key, t));
                 }

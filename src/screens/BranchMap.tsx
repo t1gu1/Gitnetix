@@ -257,7 +257,6 @@ function layoutMap(o: Overview, prefs: Pick<MapPrefs, "who" | "merged" | "behind
     for (const k of live(b)) if (walk(k)) any = true;
     if (b.role !== "branch") {
       vis.add(b.name);
-      if (!any && b.role === "release" && prefs.who !== "all") ghost.add(b.name);
       return true;
     }
     if (passes(b) || any) vis.add(b.name);
@@ -1444,7 +1443,6 @@ export function BranchMap({
               agent={agentOf(sel)}
               run={rebasing.get(sel.name)}
               actions={actions}
-              onFocus={onFocus}
               onStashes={onStashes}
               pr={prOf(sel.name)}
               extra={filesButton?.(sel)}
@@ -1951,7 +1949,6 @@ function SelectedCard({
   agent,
   run,
   actions,
-  onFocus,
   onStashes,
   pr,
   extra,
@@ -1963,7 +1960,6 @@ function SelectedCard({
   agent?: AgentInfo;
   run?: RebaseRun;
   actions: BranchActions;
-  onFocus: (b: string, item: FocusItem) => void;
   onStashes: (b?: string) => void;
   /** The branch's open pull request, if any. */
   pr?: BranchPr;
@@ -1989,8 +1985,6 @@ function SelectedCard({
   const trunk = b.role === "trunk";
   const kind = b.role === "branch" && b.kind;
   const name = b.role === "release" && b.release ? `${labelOf(b.name)} · ${b.name}` : kind ? b.short : b.name;
-
-  const look = lookItem(b);
 
   const nav = useNav();
   const rows: [string, ReactNode, string?][] = [];
@@ -2032,23 +2026,7 @@ function SelectedCard({
           {kind && <span className="map-kind">{b.kind}</span>}
           <BranchTags o={o} b={b} />
         </div>
-        {/* The name opens the branch full screen too; folded, the eye says so, as the hidden "Look at the code" did. */}
-        <h3 className="mono">
-          <button className="map-card-look" disabled={!b.exists} data-tip="Look at the code" onClick={() => onFocus(b.name, look)}>
-            {folded ? (
-              // The eye wraps with the name's last letters, never alone on a line.
-              <>
-                {name.slice(0, -4)}
-                <span className="map-card-tail">
-                  {name.slice(-4)}
-                  <Icon name="eye" size={13} className="map-card-eye" />
-                </span>
-              </>
-            ) : (
-              name
-            )}
-          </button>
-        </h3>
+        <h3 className="mono">{name}</h3>
         <button className="btn btn-icon map-card-fold" aria-expanded={!folded} aria-label={folded ? "Show the selected branch" : "Fold the selected branch"} onClick={() => setFolded(!folded)}>
           <Icon name="chevronDown" size={14} className="chev" />
         </button>

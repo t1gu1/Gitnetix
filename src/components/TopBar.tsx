@@ -14,6 +14,7 @@ import { animates } from "../lib/motion";
 import { PAGES, useNav, type Route } from "../lib/nav";
 import { Icon } from "./Icon";
 import { ProfileButton } from "./Profiles";
+import { useNewerRelease } from "./UpdatePrompt";
 import { FixedWidth, useThumb } from "./ui";
 
 /** Worktrees has its own square button next to the menu instead of a page tab. */
@@ -73,6 +74,7 @@ export function TopBar() {
   });
   const open = (projects.data ?? []).filter((p) => !p.hidden);
   const keys = useKeys();
+  const newer = useNewerRelease();
 
   // Tabs are reordered with pointer events: HTML5 drag-and-drop clashes with the webview's folder drop.
   const saveOrder = useReorderProjects();
@@ -328,8 +330,14 @@ export function TopBar() {
           </button>
         </nav>
         <div className="hdr-tools">
-          <button className="hdr-gear hide-narrow" aria-label="Settings" data-tip={`Settings (${showKeys(keys.settings)})`} onClick={() => nav.go({ name: "menu" })}>
+          <button
+            className="hdr-gear hide-narrow"
+            aria-label={newer ? "Settings, update available" : "Settings"}
+            data-tip={`Settings (${showKeys(keys.settings)})${newer ? `. Gitnetix ${newer.version} is available` : ""}`}
+            onClick={() => nav.go({ name: "menu" })}
+          >
             <Icon name="gear" size={16} />
+            {newer && <span className="update-dot" aria-hidden />}
           </button>
           <ProfileButton />
         </div>

@@ -298,6 +298,27 @@ async fn br22_least_advanced_trunk_is_the_root() {
     assert_eq!(e.view("main").await["parent"], "prod");
 }
 
+/// BR-23: an old branch with no commits of its own, then main moves on past a tag and a hotfix is cut from that tag.
+/// The hotfix is closer to the old branch than main is, yet the old branch stays under main: it holds nothing of the
+/// release, and rebasing the release must not offer to update it. A branch made on the hotfix's tip goes under it.
+#[tokio::test]
+async fn br23_a_hotfix_does_not_take_in_old_branches() {
+    let e = env().await;
+    sh(&e.repo, &["branch", "test/old"]);
+    commit_file(&e.repo, "a.txt", "x\n");
+    sh(&e.repo, &["tag", "v1.0.0"]);
+    for f in ["b.txt", "c.txt"] {
+        commit_file(&e.repo, f, "x\n");
+    }
+    e.call("releases.create", json!({ "version": "1.0.1", "kind": "hotfix" })).await;
+    assert_eq!(rev(&e.repo, "release/1.0.1"), rev(&e.repo, "v1.0.0^{commit}"), "cut from the tag");
+    sh(&e.repo, &["branch", "fix/fresh", "release/1.0.1"]);
+
+    let old = e.view("test/old").await;
+    assert_eq!((old["parent"].as_str(), old["ahead"].as_u64()), (Some("main"), Some(0)), "{old}");
+    assert_eq!(e.view("fix/fresh").await["parent"], "release/1.0.1");
+}
+
 // ---------------------------------------------------------------- Suggested actions
 
 /// feat/x pushed with a.txt, then a teammate pushes `theirs` (file, body) on top, fetched here.
