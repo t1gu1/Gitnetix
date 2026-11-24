@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.36.3] - 2026-11-24
+
 ### Changed (App)
 
 - Theme pickers group themes under "Gitnetix Original themes" and "Other popular themes". The Appearance settings screen shows one group per section, and a search hides any group with no match.
