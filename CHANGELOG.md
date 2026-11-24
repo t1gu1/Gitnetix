@@ -14,6 +14,16 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Changed (App)
+
+- Theme pickers group themes under "Gitnetix Original themes" and "Other popular themes". The Appearance settings screen shows one group per section, and a search hides any group with no match.
+- The agent panel can widen up to the files panel.
+- The default provider box in AI setup now sits above task routing.
+
+### Fixed (App)
+
+- Worktree finish buttons stack vertically, so their labels show in full.
+
 ## [0.36.2] - 2026-11-24
 
 ### Changed (Website)
