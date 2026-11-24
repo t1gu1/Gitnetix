@@ -44,7 +44,8 @@ async fn ai_resolves_conflicts_and_the_operation_goes_through() {
     std::fs::create_dir(&bin).unwrap();
     let counter = tmp.path().join("answers");
     let script = bin.join("ollama");
-    std::fs::write(&script, format!("#!/bin/sh\nprompt=$(cat)\nn=$(($(cat '{0}' 2>/dev/null || echo 0) + 1))\necho $n > '{0}'\necho '[[FIND]]'\nprintf '%s\\n' \"$prompt\" | awk '/^<<<<<<< /{{f=1}} f{{print}} /^>>>>>>> /{{f=0}}'\nprintf '[[REPLACE]]\\nresolved %s\\n[[END]]\\n' \"$n\"\n", counter.display())).unwrap();
+    // `ollama list`, the model list read before the first run, is not a conflict to answer.
+    std::fs::write(&script, format!("#!/bin/sh\n[ \"$1\" = list ] && exit 0\nprompt=$(cat)\nn=$(($(cat '{0}' 2>/dev/null || echo 0) + 1))\necho $n > '{0}'\necho '[[FIND]]'\nprintf '%s\\n' \"$prompt\" | awk '/^<<<<<<< /{{f=1}} f{{print}} /^>>>>>>> /{{f=0}}'\nprintf '[[REPLACE]]\\nresolved %s\\n[[END]]\\n' \"$n\"\n", counter.display())).unwrap();
     use std::os::unix::fs::PermissionsExt;
     std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
     std::env::set_var("PATH", format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default()));

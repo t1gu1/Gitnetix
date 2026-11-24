@@ -42,7 +42,8 @@ async fn call(k: &Gitnetix, m: &str, p: Value) -> Value {
 
 /// The fake AI, `body` run with the prompt in `$prompt`.
 fn fake_ai(script: &Path, body: &str) {
-    std::fs::write(script, format!("#!/bin/sh\nprompt=$(cat)\n{body}\n")).unwrap();
+    // `ollama list`, the model list read before the first run, is not a prompt to answer.
+    std::fs::write(script, format!("#!/bin/sh\n[ \"$1\" = list ] && exit 0\nprompt=$(cat)\n{body}\n")).unwrap();
     std::fs::set_permissions(script, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 

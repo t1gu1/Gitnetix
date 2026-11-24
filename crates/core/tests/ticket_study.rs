@@ -57,11 +57,12 @@ async fn wt10_tickets_from_a_branch_and_from_a_study_of_each_default_branch() {
     let prompts = tmp.path().join("prompts");
     std::fs::create_dir(&prompts).unwrap();
     // Saves each prompt; a study answers with its ticket between the markers, a one-shot draft with the ticket alone.
+    // `ollama list`, the model list read before the first run, is not a prompt.
     let script = bin.join("ollama");
     std::fs::write(
         &script,
         format!(
-            "#!/bin/sh\nprompt=$(cat)\nn=$(ls '{p}' | wc -l)\nprintf '%s' \"$prompt\" > '{p}/'$n\ncase \"$prompt\" in\n*'Before you write, study the code'*) printf 'I read report.ts.\\n\\n[[TICKET]]\\nExport the report as CSV\\n\\n## Acceptance criteria\\n- [ ] A CSV downloads\\n[[END]]\\n';;\n*) printf 'Add CSV export\\n\\n## Goal\\nExport rows.\\n\\n## Done when\\n- [ ] A CSV downloads\\n';;\nesac\n",
+            "#!/bin/sh\n[ \"$1\" = list ] && exit 0\nprompt=$(cat)\nn=$(ls '{p}' | wc -l)\nprintf '%s' \"$prompt\" > '{p}/'$n\ncase \"$prompt\" in\n*'Before you write, study the code'*) printf 'I read report.ts.\\n\\n[[TICKET]]\\nExport the report as CSV\\n\\n## Acceptance criteria\\n- [ ] A CSV downloads\\n[[END]]\\n';;\n*) printf 'Add CSV export\\n\\n## Goal\\nExport rows.\\n\\n## Done when\\n- [ ] A CSV downloads\\n';;\nesac\n",
             p = prompts.display()
         ),
     )
