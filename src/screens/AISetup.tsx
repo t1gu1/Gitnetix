@@ -66,10 +66,12 @@ export function AISetupPanes({ sub, open }: { sub?: string; open: (id: string, t
             ))}
           </div>
         </SheetBox>
-        <DefaultBox cat={c} />
         <p className="hint">Connect as many as you like, then choose which one does what in Task routing.</p>
       </div>
-      <Routing cat={c} />
+      <div className="ais-stack">
+        <DefaultBox cat={c} />
+        <Routing cat={c} />
+      </div>
     </div>
   );
 }

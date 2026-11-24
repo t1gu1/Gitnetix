@@ -14912,7 +14912,7 @@ label.sheet-row {
   }
 }
 
-/* AI setup (AISetup.tsx): the providers and the default beside task routing; a provider's page, its connection beside its model. */
+/* AI setup (AISetup.tsx): the providers beside the default and task routing; a provider's page, its connection beside its model. */
 .ais-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
