@@ -158,7 +158,7 @@ export const THEMES: Theme[] = [
 /** The 16 terminal colors as "#rrggbb". */
 export const ansi = (t: Theme) => t.ansi.split(" ").map((h) => `#${h}`);
 
-/** A theme made for Gitnetix, listed under "Gitnetix original" in the pickers: its family starts with "Gitnetix". Keep them first in THEMES. */
+/** A theme made for Gitnetix, listed under "Gitnetix Original themes" in the pickers: its family starts with "Gitnetix". Keep them first in THEMES. */
 export const original = (t: Theme) => t.family.startsWith("Gitnetix");
 
 /** The themes "system" shows in the computer's dark and light modes. */

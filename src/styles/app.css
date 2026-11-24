@@ -14087,7 +14087,7 @@ label.sheet-row {
   margin-top: auto;
 }
 .thm-mode > .seg {
-  align-self: stretch;
+  align-self: flex-start;
 }
 .thm-bar {
   display: flex;
@@ -14095,8 +14095,13 @@ label.sheet-row {
   gap: 12px;
   margin-top: 4px;
 }
+.thm-group {
+  margin-top: 16px;
+}
 .thm-search {
   position: relative;
+  /* Out of the bar's height, so its title sits as far above the tiles as "Other popular themes" does. */
+  margin-block: -8px;
   margin-left: auto;
   width: 240px;
   color: var(--faint);

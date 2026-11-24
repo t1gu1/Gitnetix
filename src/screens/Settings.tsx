@@ -1,4 +1,4 @@
-import { useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import { useAction, useAiCatalog, useAiModels, useConfig } from "../api/hooks";
 import { isLocal } from "../api/transport";
@@ -28,6 +28,13 @@ export function Appearance() {
   const setMode = (m: string) => nav.setThemePref(m === "system" ? "system" : (m === "light") === shown.light ? shown.id : otherMode(shown));
   const term = search.trim().toLowerCase();
   const list = THEMES.filter((t) => !term || t.name.toLowerCase().includes(term));
+  // A search hides a group with no match; the first group shown names the bar with the search.
+  const groups = (
+    [
+      ["Gitnetix Original themes", list.filter(original)],
+      ["Other popular themes", list.filter((t) => !original(t))],
+    ] as const
+  ).filter(([, g]) => g.length);
   return (
     <>
       <section className="thm-hero" aria-label="Theme on screen">
@@ -42,24 +49,29 @@ export function Appearance() {
         </div>
       </section>
       <div className="thm-bar">
-        <h3 className="label">All themes</h3>
+        <h3 className="label">{groups[0]?.[0] ?? "Themes"}</h3>
         <label className="thm-search">
           <Icon name="search" size={12} />
           <input className="input" type="search" data-no-mic placeholder="Search" aria-label="Search themes" value={search} onChange={(e) => setSearch(e.target.value)} />
         </label>
       </div>
-      <div role="radiogroup" aria-label="Theme" className="thm-tiles">
-        {list.map((t) => (
-          <button key={t.id} className="thm-tile" role="radio" aria-checked={t.id === shown.id} onClick={() => nav.setThemePref(t.id)}>
-            <ThemePreview t={t} />
-            <span className="thm-tile-name">
-              {t.id === shown.id && <Icon name="check" size={12} />}
-              <span className="ellipsis">{t.name}</span>
-            </span>
-          </button>
-        ))}
-        {!list.length && <p className="hint">No theme matches “{search.trim()}”.</p>}
-      </div>
+      {groups.map(([title, g], i) => (
+        <Fragment key={title}>
+          {i > 0 && <h3 className="label thm-group">{title}</h3>}
+          <div role="radiogroup" aria-label={title} className="thm-tiles">
+            {g.map((t) => (
+              <button key={t.id} className="thm-tile" role="radio" aria-checked={t.id === shown.id} onClick={() => nav.setThemePref(t.id)}>
+                <ThemePreview t={t} />
+                <span className="thm-tile-name">
+                  {t.id === shown.id && <Icon name="check" size={12} />}
+                  <span className="ellipsis">{t.name}</span>
+                </span>
+              </button>
+            ))}
+          </div>
+        </Fragment>
+      ))}
+      {!list.length && <p className="hint">No theme matches “{search.trim()}”.</p>}
     </>
   );
 }
@@ -109,7 +121,7 @@ export function ThemeChoices() {
   return (
     <div role="radiogroup" aria-label="Theme" className="col" style={{ gap: 20 }}>
       <section className="section">
-        <h2>Gitnetix original</h2>
+        <h2>Gitnetix Original themes</h2>
         <div style={grid}>
           {card(
             "system",
@@ -122,7 +134,7 @@ export function ThemeChoices() {
         </div>
       </section>
       <section className="section">
-        <h2>More themes</h2>
+        <h2>Other popular themes</h2>
         <div style={grid}>{THEMES.filter((t) => !original(t)).map((t) => card(t.id, t.name, <Swatch t={t} />))}</div>
       </section>
     </div>
