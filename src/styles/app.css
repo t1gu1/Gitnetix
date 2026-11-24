@@ -2697,6 +2697,12 @@ button.map-line-chip[aria-disabled] {
     max-width: calc(100% - 408px);
   }
 }
+/* Under 200px left beside that column (the agent panel widened): no legend, rather than a stub that spills out of the view. */
+@container map-view (max-width: 607px) {
+  .map-view:has(> .map-side) > .map-legend-box {
+    display: none;
+  }
+}
 /* One row tall: keys that don't fit wrap to a second row, out of sight, so none shows cut in half. */
 .map-legend-keys {
   flex: 1 1 auto;
@@ -4750,9 +4756,14 @@ input.img-slider {
     flex-basis: var(--term-w, 460px);
     /* Without it, a long unbroken log line widens the panel past its dragged width. */
     min-width: 0;
-    max-width: calc(100% - 360px);
+    /* Up to the files panel, which stays: the focus view's files... */
+    max-width: calc(100% - var(--rail-w, 360px));
     border-top: 0;
     border-left: 1px solid var(--line);
+  }
+  /* ...or on the map the selected branch's column, 360px and its 16px margins. */
+  .ws-body > .map ~ .term:not(.term-max) {
+    max-width: calc(100% - 392px);
   }
   /* Closed: a strip down the right edge, its label written top to bottom. */
   .term-closed {

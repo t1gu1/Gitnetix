@@ -650,7 +650,8 @@ export function Workspace() {
               <div ref={setMapBar} />
             )}
           </div>
-          <div className="ws-body">
+          {/* On the body: the agent panel beside the files panel leaves it its width. */}
+          <div className="ws-body" style={{ "--rail-w": `${railW.width}px` } as CSSProperties}>
             {!focused ? (
               <BranchMap
                 o={o}
@@ -729,7 +730,7 @@ export function Workspace() {
             ) : (
               <section className="focus" aria-label={`${branch} full screen`}>
                 <div className="focus-body">
-                  <aside className="rail" aria-label="Changed files" style={{ "--rail-w": `${railW.width}px` } as CSSProperties} data-pane data-active={pane === "rail"}>
+                  <aside className="rail" aria-label="Changed files" data-pane data-active={pane === "rail"}>
                     {fileLog !== null && branch ? (
                       <FileHistory
                         key={fileLog}
@@ -2980,7 +2981,8 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
   const message = useAction("agents.message", { invalidate: [["agents"]] });
   const configure = useAction("agents.configure", { invalidate: [["agents"]] });
   const stop = useAction("agents.stop", { invalidate: [["agents"]] });
-  const width = usePaneWidth("gnx.pane.termW", 460, 320, 1400);
+  // No real cap: CSS stops it at the files panel beside it.
+  const width = usePaneWidth("gnx.pane.termW", 460, 320, 10000);
   const [view, setView] = useTermView(pid, branch, !!cur, worktree);
   const shell = view === "shell";
   // Maximized, the terminal takes the map's or the focus view's place.

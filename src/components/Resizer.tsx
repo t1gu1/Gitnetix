@@ -28,6 +28,11 @@ export function Resizer({ pane, label, right, percent }: { pane: PaneWidth; labe
   // `k` turns dragged pixels into the value's unit.
   const start = useRef<{ x: number; w: number; k: number } | null>(null);
   const pos = (e: PointerEvent) => (right ? -e.clientX : e.clientX);
+  // The width shown, which CSS can hold below the stored one: a drag or nudge past it would first do nothing.
+  const shown = (el: HTMLElement) => {
+    const p = right ? el.nextElementSibling : el.previousElementSibling;
+    return percent || !(p instanceof HTMLElement) ? pane.width : p.offsetWidth;
+  };
   const end = () => {
     if (!start.current) return;
     start.current = null;
@@ -48,17 +53,17 @@ export function Resizer({ pane, label, right, percent }: { pane: PaneWidth; labe
         if (e.button !== 0) return;
         e.preventDefault();
         e.currentTarget.setPointerCapture(e.pointerId);
-        start.current = { x: pos(e), w: pane.width, k: percent ? 100 / e.currentTarget.parentElement!.clientWidth : 1 };
+        start.current = { x: pos(e), w: shown(e.currentTarget), k: percent ? 100 / e.currentTarget.parentElement!.clientWidth : 1 };
         document.body.classList.add("resizing");
       }}
       onPointerMove={(e) => start.current && pane.set(start.current.w + (pos(e) - start.current.x) * start.current.k)}
       onPointerUp={end}
       onLostPointerCapture={end}
       onDoubleClick={() => pane.set(pane.def, true)}
-      onKeyDown={(e: KeyboardEvent) => {
+      onKeyDown={(e: KeyboardEvent<HTMLDivElement>) => {
         const step = (e.shiftKey ? 64 : 16) / (percent ? 8 : 1);
-        if (e.key === (right ? "ArrowRight" : "ArrowLeft")) pane.set(pane.width - step, true);
-        else if (e.key === (right ? "ArrowLeft" : "ArrowRight")) pane.set(pane.width + step, true);
+        if (e.key === (right ? "ArrowRight" : "ArrowLeft")) pane.set(shown(e.currentTarget) - step, true);
+        else if (e.key === (right ? "ArrowLeft" : "ArrowRight")) pane.set(shown(e.currentTarget) + step, true);
         else return;
         e.preventDefault();
       }}
