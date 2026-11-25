@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.36.5] - 2026-11-25
+
 ### Added (App)
 - Set up the first branch for a folder with no commit yet, and name it during setup.
 - Add an `init` option to `projects.add`.
