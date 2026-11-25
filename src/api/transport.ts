@@ -12,11 +12,14 @@ export class RpcError extends Error {
   host?: string;
   /** `no_push_access`: the GitHub repository (owner/repo) the user can't push to. */
   repo?: string;
-  constructor(code: string, message: string, host?: string, repo?: string) {
+  /** `not_repo`: the folder that holds no Git repository. */
+  path?: string;
+  constructor(code: string, message: string, host?: string, repo?: string, path?: string) {
     super(message);
     this.code = code;
     this.host = host;
     this.repo = repo;
+    this.path = path;
   }
 }
 
@@ -102,9 +105,9 @@ export async function rpc<T = unknown>(method: string, params: Record<string, un
     try {
       return await invoke<T>("rpc", { method, params });
     } catch (e) {
-      const err = e as { code?: string; message?: string; host?: string; repo?: string } | string;
+      const err = e as { code?: string; message?: string; host?: string; repo?: string; path?: string } | string;
       if (typeof err === "string") throw new RpcError("other", err);
-      throw new RpcError(err.code ?? "other", err.message ?? String(e), err.host, err.repo);
+      throw new RpcError(err.code ?? "other", err.message ?? String(e), err.host, err.repo, err.path);
     }
   }
   if (!remote) throw new RpcError("not_paired", "Not connected to a Gitnetix desktop");
@@ -119,7 +122,7 @@ export async function rpc<T = unknown>(method: string, params: Record<string, un
     throw new RpcError("unreachable", `Cannot reach ${remote.url}`);
   }
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new RpcError(body.code ?? "http", body.message ?? `HTTP ${res.status}`, body.host, body.repo);
+  if (!res.ok) throw new RpcError(body.code ?? "http", body.message ?? `HTTP ${res.status}`, body.host, body.repo, body.path);
   return body as T;
 }
 

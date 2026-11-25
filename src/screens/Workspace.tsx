@@ -55,6 +55,7 @@ import { agentWords, BranchMap, BranchTags, lineageOf, lookItem, originOf, revea
 import { offersRebase, useBranchActions, useCommit, type BranchDialog, type BranchTarget } from "./BranchMenu";
 import { DeleteTagModal } from "./CommitMenu";
 import { FileHistory } from "./FileHistory";
+import { FirstBranch } from "./FirstBranch";
 import { PublishModal } from "./Publish";
 import { startRebase } from "./RebaseRun";
 import { StashList } from "./StashList";
@@ -652,7 +653,9 @@ export function Workspace() {
           </div>
           {/* On the body: the agent panel beside the files panel leaves it its width. */}
           <div className="ws-body" style={{ "--rail-w": `${railW.width}px` } as CSSProperties}>
-            {!focused ? (
+            {!focused && o.unborn ? (
+              <FirstBranch pid={pid} o={o} bar={mapBar} />
+            ) : !focused ? (
               <BranchMap
                 o={o}
                 selected={branch}
@@ -1792,40 +1795,43 @@ export function MapDiff({
   return (
     <section className="map-diff" aria-label={f ? `Changes to ${f.path}` : "File"}>
       <div className="code-file">
-        {f && (
-          <>
-            <span className={`file-st ${{ A: "c-add", D: "c-del", C: "c-acc", M: "c-mod", R: "c-mod", " ": "faint" }[f.status] ?? "faint"}`}>{unchanged ? "·" : f.status}</span>
-            <span className="code-path mono ellipsis" data-tip={f.path} data-tip-overflow>
-              {cut >= 0 && <span className="faint">{f.path.slice(0, cut + 1)}</span>}
-              <b>{f.path.slice(cut + 1)}</b>
+        {/* Scrolls sideways when narrow, so close stays in view. */}
+        <div className="code-file-scroll">
+          {f && (
+            <>
+              <span className={`file-st ${{ A: "c-add", D: "c-del", C: "c-acc", M: "c-mod", R: "c-mod", " ": "faint" }[f.status] ?? "faint"}`}>{unchanged ? "·" : f.status}</span>
+              <span className="code-path mono ellipsis" data-tip={f.path} data-tip-overflow>
+                {cut >= 0 && <span className="faint">{f.path.slice(0, cut + 1)}</span>}
+                <b>{f.path.slice(cut + 1)}</b>
+              </span>
+              <span className="row mono" style={{ gap: 6, margin: 0 }}>
+                {f.additions ? <span className="c-add">+{f.additions}</span> : null}
+                {f.deletions ? <span className="c-del">−{f.deletions}</span> : null}
+              </span>
+              {mode !== "branch" && <span className="faint ellipsis code-note">{mode === "wip" ? (f.staged ? "staged" : "not staged") : unchanged ? "unchanged on this branch" : "changed on this branch"}</span>}
+            </>
+          )}
+          <span className="grow" />
+          {listed.length > 1 && (
+            <span className="code-files" role="group" aria-label="Files">
+              <button className="btn btn-ghost btn-sm btn-icon" aria-label="Previous file ([)" data-tip="Previous file ([)" disabled={at <= 0} onClick={() => keys.current.file(-1)}>
+                <Icon name="chevronLeft" size={12} />
+              </button>
+              <span>{at >= 0 ? `File ${at + 1} of ${listed.length}` : `${listed.length} files`}</span>
+              <button className="btn btn-ghost btn-sm btn-icon" aria-label="Next file (])" data-tip="Next file (])" disabled={at >= listed.length - 1} onClick={() => keys.current.file(1)}>
+                <Icon name="chevronRight" size={12} />
+              </button>
             </span>
-            <span className="row mono" style={{ gap: 6, margin: 0 }}>
-              {f.additions ? <span className="c-add">+{f.additions}</span> : null}
-              {f.deletions ? <span className="c-del">−{f.deletions}</span> : null}
-            </span>
-            {mode !== "branch" && <span className="faint ellipsis code-note">{mode === "wip" ? (f.staged ? "staged" : "not staged") : unchanged ? "unchanged on this branch" : "changed on this branch"}</span>}
-          </>
-        )}
-        <span className="grow" />
-        {listed.length > 1 && (
-          <span className="code-files" role="group" aria-label="Files">
-            <button className="btn btn-ghost btn-sm btn-icon" aria-label="Previous file ([)" data-tip="Previous file ([)" disabled={at <= 0} onClick={() => keys.current.file(-1)}>
-              <Icon name="chevronLeft" size={12} />
+          )}
+          {f && <FileModes path={f.path} blobs={blobs.data} image={image} unchanged={unchanged} {...{ imageMode, setImageMode, diffMode, setDiffMode, preview, setPreview, setSvgCode }} />}
+          {f && <RevealFile root={f.status === "D" ? undefined : root} path={f.path} />}
+          {f && onHistory && (
+            <button className="btn btn-sm" aria-label="File history" data-tip="Commits that changed this file" onClick={() => onHistory(f.path)}>
+              <Icon name="history" size={12} />
+              <span className="hide-narrow">History</span>
             </button>
-            <span>{at >= 0 ? `File ${at + 1} of ${listed.length}` : `${listed.length} files`}</span>
-            <button className="btn btn-ghost btn-sm btn-icon" aria-label="Next file (])" data-tip="Next file (])" disabled={at >= listed.length - 1} onClick={() => keys.current.file(1)}>
-              <Icon name="chevronRight" size={12} />
-            </button>
-          </span>
-        )}
-        {f && <FileModes path={f.path} blobs={blobs.data} image={image} unchanged={unchanged} {...{ imageMode, setImageMode, diffMode, setDiffMode, preview, setPreview, setSvgCode }} />}
-        {f && <RevealFile root={f.status === "D" ? undefined : root} path={f.path} />}
-        {f && onHistory && (
-          <button className="btn btn-sm" aria-label="File history" data-tip="Commits that changed this file" onClick={() => onHistory(f.path)}>
-            <Icon name="history" size={12} />
-            <span className="hide-narrow">History</span>
-          </button>
-        )}
+          )}
+        </div>
         <button className="btn btn-sm btn-icon" aria-label="Close the file (Esc)" data-tip="Close (Esc)" onClick={onClose}>
           <Icon name="close" size={12} />
         </button>
@@ -2327,15 +2333,10 @@ export function TargetBranchModal({
       hint={<EnterHint verb="target" />}
       onClose={onClose}
       footer={
-        <>
-          <button className="btn btn-md" onClick={onClose}>
-            Back
-          </button>
-          <button className="btn btn-md btn-primary" disabled={!picked || move.isPending} onClick={submit}>
-            {move.isPending && <span className="spinner" />}
-            Target {picked ? labelOf(picked) : "it"}
-          </button>
-        </>
+        <button className="btn btn-md btn-primary" disabled={!picked || move.isPending} onClick={submit}>
+          {move.isPending && <span className="spinner" />}
+          Target {picked ? labelOf(picked) : "it"}
+        </button>
       }
     >
       <BranchPicker choices={choices} labelOf={labelOf} picked={picked} onPick={setPicked} />
@@ -2398,7 +2399,7 @@ function RebaseOntoModal({ pid, branch, onto, onClose }: { pid: string; branch: 
   );
 }
 
-/** Replays the checked-out `branch` on top of `onto`, or of a branch picked here; its target stays. */
+/** Replays the checked-out `branch` on top of `onto` (a branch, or a commit's SHA from the commit menu), or of a branch picked here; its target stays. */
 /** Once it went through: pushed when asked to, then `onChildren` asks about the branches under it. */
 function RebaseOntoBranchModal({ pid, branch, onto, branches, defaultBranch, labelOf, onClose, onChildren }: { pid: string; branch: string; onto?: string; branches: BranchView[]; defaultBranch: string; labelOf: (b: string) => string; onClose: () => void; onChildren: (b: string) => void }) {
   const [picked, setPicked] = useState<string | null>(onto ?? null);
@@ -2407,7 +2408,9 @@ function RebaseOntoBranchModal({ pid, branch, onto, branches, defaultBranch, lab
   const view = branches.find((b) => b.name === branch);
   const parent = view?.parent;
   const name = labelOf(branch);
-  const to = picked ? labelOf(picked) : undefined;
+  // A commit reads as its short SHA.
+  const nameOf = (x: string) => (/^[0-9a-f]{40}$/.test(x) ? x.slice(0, 7) : labelOf(x));
+  const to = picked ? nameOf(picked) : undefined;
   const upstream = view?.upstream;
   const go = async (target: string) => {
     onClose();
@@ -2427,7 +2430,7 @@ function RebaseOntoBranchModal({ pid, branch, onto, branches, defaultBranch, lab
   };
   return (
     <Modal
-      title={onto ? `Rebase onto ${labelOf(onto)}?` : "Rebase onto a specific branch"}
+      title={onto ? `Rebase onto ${nameOf(onto)}?` : "Rebase onto a specific branch"}
       route={to ? <Route from={name} to={to} label="rebase onto" /> : undefined}
       hint={<EnterHint verb="rebase" />}
       sub={view?.checkedOut ? <><span className="mono">{name}</span> is checked out</> : <><span className="mono">{name}</span> is rebased aside: your checkout stays as it is</>}
@@ -3322,7 +3325,7 @@ function CloseWorktreeModal({ session: s, finish, onClose, inline }: { session: 
   const keepOnLabel = inline && then === "continue";
   // Stacked, Finish on top, so each label shows in full.
   const buttons = (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column-reverse", gap: 8 }}>
+    <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column-reverse", gap: 8 }}>
       <button type="button" className="btn btn-md btn-danger" data-tip={`Delete the worktree, its uncommitted changes and the local ${s.branch} branch`} onClick={() => setDiscarding(true)}>Cancel and Delete all</button>
       <span className="split-btn">
         <button type="button" className={`btn btn-md btn-primary${then === "merge" ? " split-main" : ""}`} style={{ flex: "1 1 auto", minWidth: 0 }} data-tip={keepOnLabel ? "Finish with the agent / worktree" : undefined} onClick={() => { finish[then](s, sw, into); onClose(); }}>
@@ -3362,7 +3365,7 @@ function CloseWorktreeModal({ session: s, finish, onClose, inline }: { session: 
   if (discarding) return <DiscardWorktreeModal branch={s.branch} path={s.cwd} onClose={() => setDiscarding(false)} onConfirm={() => { finish.discard(s); onClose(); }} />;
   if (inline) return <div className="ag-finish">{body}<div className="ag-finish-foot">{buttons}</div></div>;
   return (
-    <Modal title="Close worktree session" sub={<span className="mono">{s.branch}</span>} width={520} onClose={onClose} footer={buttons}>
+    <Modal title="Close worktree session" sub={<span className="mono">{s.branch}</span>} width={640} onClose={onClose} footer={buttons}>
       {body}
     </Modal>
   );

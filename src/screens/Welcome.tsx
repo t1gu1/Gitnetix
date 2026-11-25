@@ -2,13 +2,13 @@ import { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { useAction, useConfig, useProjects, withV } from "../api/hooks";
-import { isLocal, onPathDrop, pickFolders, rpc } from "../api/transport";
+import { isLocal, onPathDrop, pickFolders, rpc, RpcError } from "../api/transport";
 import type { GitHubRepo, Project, RecentProject } from "../api/types";
 import { Icon } from "../components/Icon";
 import { dataUrl } from "../components/ImageDiff";
 import { Logo } from "../components/Logo";
 import { ProfileButton } from "../components/Profiles";
-import { Busy, ErrorBox, initials, Modal, Seg } from "../components/ui";
+import { Busy, EnterHint, ErrorBox, initials, Modal, Seg } from "../components/ui";
 import { useNav } from "../lib/nav";
 import { useStored } from "../lib/stored";
 
@@ -20,9 +20,16 @@ export function Welcome() {
   const [over, setOver] = useState(false);
   const [manual, setManual] = useState("");
   const [cloning, setCloning] = useState(false);
-  const add = useAction<Project[], { paths: string[] }>("projects.add", {
+  // A folder that holds no repository: the user chooses whether to create one there (`paths`: the whole list it came in).
+  const [noRepo, setNoRepo] = useState<{ path: string; paths: string[] } | null>(null);
+  const add = useAction<Project[], { paths: string[]; init?: boolean }>("projects.add", {
     invalidate: [["projects"], ["config"]],
     success: (r) => (r.length ? `Added ${r.map((p) => p.name).join(", ")}` : undefined),
+    onError: (e, vars) => {
+      if (!(e instanceof RpcError) || e.code !== "not_repo" || !e.path) return false;
+      setNoRepo({ path: e.path, paths: vars.paths });
+      return true;
+    },
   });
   const remove = useAction("projects.remove", { invalidate: [["projects"], ["config"]] });
   const reopen = useAction("projects.setHidden", { invalidate: [["projects"], ["config"]] });
@@ -125,6 +132,46 @@ export function Welcome() {
               </form>
             )}
           </div>
+          {noRepo && (
+            <Modal
+              title="Create a Git repository here?"
+              sub={<span className="mono">{noRepo.path}</span>}
+              onClose={() => setNoRepo(null)}
+              hint={<EnterHint verb="create" />}
+              footer={
+                <>
+                  <button className="btn btn-md" onClick={() => setNoRepo(null)}>
+                    Back
+                  </button>
+                  <button
+                    className="btn btn-primary btn-md"
+                    autoFocus
+                    disabled={add.isPending}
+                    onClick={() =>
+                      add.mutate(
+                        { paths: [noRepo.path], init: true },
+                        {
+                          onSuccess: (r) => {
+                            setNoRepo(null);
+                            // Dropped with others: those go in after it, each folder without a repository asked about in turn.
+                            if (noRepo.paths.length > 1) addPaths(noRepo.paths);
+                            else openFirst(r);
+                          },
+                        },
+                      )
+                    }
+                  >
+                    <Busy on={add.isPending}><Icon name="plus" /></Busy>
+                    Create repository
+                  </button>
+                </>
+              }
+            >
+              <p className="m-text">
+                This folder is not a Git repository yet. Creating one adds a hidden <span className="mono">.git</span> folder and leaves your files as they are. You name the first branch next.
+              </p>
+            </Modal>
+          )}
           {cloning && (
             <CloneModal
               // Next to the first project by default: where this user keeps their repositories.

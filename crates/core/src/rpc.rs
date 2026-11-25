@@ -32,7 +32,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("projects.list", "List saved projects", ""),
     ("projects.recent", "Projects saved in the other profiles and not in this one, to add back", ""),
     ("projects.icon", "A saved or recent project's own icon (favicon, app or PWA icon, logo) from its tracked files: { path, data (base64) } or null", "path"),
-    ("projects.add", "Add local Git repositories", "paths: string[]"),
+    ("projects.add", "Add local Git repositories; a folder holding none is refused with code not_repo (and `path`), unless init creates one there", "paths: string[], init?"),
     ("projects.clone", "Clone a Git repository into a new folder and add it", "url, path"),
     ("projects.remove", "Remove a project from the list (files untouched)", "projectId"),
     ("projects.setHidden", "Close or reopen a project's tab (data kept)", "projectId, hidden"),
@@ -63,10 +63,11 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("workspace.ignore", "Add a file or folder (dir = true) to the checkout's root .gitignore", "projectId, branch, path, dir?"),
     ("workspace.commitMessage", "AI-written commit message for the staged changes", "projectId, branch"),
     ("workspace.prepareCommitMessage", "Write ahead, staging nothing, the AI commit message that staging everything and committing would ask for; such a commit made before anything changes takes it", "projectId, branch"),
+    ("workspace.firstBranch", "In a repository with no commit yet, name the branch and make its first commit: the folder's files (files) or none", "projectId, name, files?"),
     ("workspace.commit", "Commit staged changes (all = stage everything first); empty message = AI writes it", "projectId, branch, message?, all?"),
     ("workspace.push", "Push a branch to origin (or to the remote of its own copy, a fork's); force = replace its upstream after a rebase (--force-with-lease --force-if-includes); refused with code no_push_access (and `repo`) when GitHub says the user can't push to origin", "projectId, branch, force?"),
     ("workspace.pushToFork", "Fork origin to the user's GitHub account (or reuse their fork), add a remote for it and push the branch there, tracking it; returns the fork (owner/repo)", "projectId, branch"),
-    ("workspace.rebase", "Rebase a branch onto onto (a local or origin-only branch), else onto its release; its target stays; AI resolves the conflicts of every commit on the way when the project has it on (resolve = even when it is off); returns conflicts left, stashConflicts (files where the uncommitted changes it set aside conflict once it finished), errors (files AI could not resolve), resolved (files AI resolved), aborted, and forcePushTo when it was already pushed", "projectId, branch, onto?, resolve?"),
+    ("workspace.rebase", "Rebase a branch onto onto (a local or origin-only branch, or a commit SHA), else onto its release; its target stays; AI resolves the conflicts of every commit on the way when the project has it on (resolve = even when it is off); returns conflicts left, stashConflicts (files where the uncommitted changes it set aside conflict once it finished), errors (files AI could not resolve), resolved (files AI resolved), aborted, and forcePushTo when it was already pushed", "projectId, branch, onto?, resolve?"),
     ("workspace.rebaseContinue", "AI resolves a paused rebase's conflicts and carries it through every commit left (even when the project has AI resolving off); returns like workspace.rebase", "projectId, branch"),
     ("workspace.rebaseRuns", "Rebases AI is carrying through right now: branch, onto, step of steps, subject, files being resolved, startedAt", ""),
     ("workspace.abort", "Abort the rebase, merge, cherry-pick or revert a branch's checkout is stopped in: back to where it was before it started; a rebase AI is carrying through stops first", "projectId, branch"),
@@ -145,6 +146,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("dictation.polish", "Rewrite dictated text into clear text with AI and the project's context; unchanged when turned off or no AI is set up", "text, projectId?, branch?, field?, typed?"),
     ("ai.setRoute", "Which AI handles a task", "task, provider?, model?, effort?, permission?, ultracode?"),
     ("ai.signIn", "Open the provider CLI to sign in", "id"),
+    ("ai.authStatus", "Whether the provider CLI is signed in, and when that sign-in expires (Claude Code only)", "id"),
     ("templates.list", "AI templates", ""),
     ("templates.save", "Create or update a template", "template"),
     ("templates.delete", "Delete a template", "id"),
@@ -654,7 +656,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "projects.icon" => to(k.project_icon(&s(&p, "path")?).await?.map(|(path, data)| json!({ "path": path, "data": data }))),
         "projects.add" => {
             let paths = list(&p, "paths")?;
-            to(k.add_projects(paths).await?)
+            to(k.add_projects(paths, b(&p, "init")).await?)
         }
         "projects.clone" => to(k.clone_project(&s(&p, "url")?, &s(&p, "path")?).await?),
         "projects.remove" => {
@@ -800,6 +802,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             k.ignore(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "path")?, b(&p, "dir")).await?;
             ok()
         }
+        "workspace.firstBranch" => to(k.first_branch(&s(&p, "projectId")?, &s(&p, "name")?, b(&p, "files")).await?),
         "workspace.commit" => to(k.commit(&s(&p, "projectId")?, &s(&p, "branch")?, os(&p, "message"), b(&p, "all")).await?),
         "workspace.push" => to(json!({ "output": k.push(&s(&p, "projectId")?, &s(&p, "branch")?, b(&p, "force")).await? })),
         "workspace.pushToFork" => to(json!({ "fork": k.push_via_fork(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
@@ -976,6 +979,11 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             k.agents.answer(&s(&p, "id")?, &s(&p, "ask")?, b(&p, "allow"))?;
             ok()
         }
+        // Not in METHODS either: one agent must not stop another's work through the MCP bridge.
+        "agents.stopTask" => {
+            k.agents.stop_task(&s(&p, "id")?, &s(&p, "task")?)?;
+            ok()
+        }
         "agents.remove" => {
             k.remove_agent(&s(&p, "id")?).await?;
             ok()
@@ -1112,6 +1120,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             })?;
             ok()
         }
+        "ai.authStatus" => to(ai::auth_status(&s(&p, "id")?).await?),
         "ai.signIn" => {
             let id = s(&p, "id")?;
             let (_, path) = ai::cli_path(&id)?;

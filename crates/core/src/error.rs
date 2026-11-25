@@ -23,6 +23,9 @@ pub enum Error {
     /// GitHub refused a push to origin: the user can't write to `repo` (owner/repo), which they can fork instead.
     #[error("You can't push to {repo} on GitHub. Fork it to push your commits to your own copy.")]
     NoPushAccess { repo: String },
+    /// A folder added as a project that holds no Git repository (its path): the app offers to create one there.
+    #[error("{0} is not a Git repository")]
+    NotRepo(String),
     /// Uncommitted changes a checkout would overwrite: git refused to switch.
     #[error("{0}")]
     WouldOverwrite(String),
@@ -56,6 +59,7 @@ impl Error {
             Error::Io(_) => "io",
             Error::Json(_) => "json",
             Error::NoPushAccess { .. } => "no_push_access",
+            Error::NotRepo(_) => "not_repo",
             Error::WouldOverwrite(_) => "would_overwrite",
             Error::Other(_) => "other",
         }
@@ -73,6 +77,9 @@ pub struct ErrorBody {
     /// `no_push_access`: the GitHub repository (owner/repo) the user can't push to, for the app to offer a fork.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub repo: Option<String>,
+    /// `not_repo`: the folder that holds no Git repository, for the app to offer to create one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 }
 
 impl From<&Error> for ErrorBody {
@@ -85,7 +92,11 @@ impl From<&Error> for ErrorBody {
             Error::NoPushAccess { repo } => Some(repo.clone()),
             _ => None,
         };
-        ErrorBody { code: e.code(), message: e.to_string(), host, repo }
+        let path = match e {
+            Error::NotRepo(path) => Some(path.clone()),
+            _ => None,
+        };
+        ErrorBody { code: e.code(), message: e.to_string(), host, repo, path }
     }
 }
 

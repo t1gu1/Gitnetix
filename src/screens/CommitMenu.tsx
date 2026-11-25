@@ -12,7 +12,7 @@ type ResetMode = "soft" | "mixed" | "hard";
 
 /**
  * The right-click menu of a branch's commits, and the dialogs it opens: copy, a new branch from the commit, revert, cherry-pick
- * onto the main checkout's branch, the resets, tags. `list`: the branch's commits as shown, newest first, origin's unpulled
+ * onto the main checkout's branch, a rebase of that branch onto the commit, the resets, tags. `list`: the branch's commits as shown, newest first, origin's unpulled
  * ones included; what a reset takes off the branch or brings back is counted from it. `base`: the base's name, for a reset to where the branch left it.
  * A shipped release's commits (`shipped`) reset the main checkout's branch instead, to try that release.
  * Render `el`; `open` on a commit's contextmenu event, `reset` from a button of its own.
@@ -28,6 +28,7 @@ export function useCommitMenu({
   list,
   shipped,
   onReset,
+  onRebase,
 }: {
   pid: string;
   branch: string;
@@ -44,6 +45,8 @@ export function useCommitMenu({
   /** The tag of the shipped release `list` holds, not the branch's own commits: no reverts; resets move `current` there. */
   shipped?: string;
   onReset?: () => void;
+  /** Ask to rebase `current` onto the commit: to ship a later branch's commits up to there in it. */
+  onRebase?: (sha: string) => void;
 }) {
   const nav = useNav();
   const [menu, setMenu] = useState<{ x: number; y: number; c: Commit } | null>(null);
@@ -103,6 +106,9 @@ export function useCommitMenu({
       disabled: !!onto,
       run: () => pick.mutate({ projectId: pid, onto: current, sha: c.sha }),
     };
+    const rebaseItem: MenuItem[] = onRebase
+      ? [{ id: "rebaseHere", label: <>Rebase <span className="mono">{current ?? "…"}</span> onto this commit…</>, icon: "branch", hint: onto, disabled: !!onto, run: () => onRebase(c.sha) }]
+      : [];
     // A shipped commit's resets move the checked-out branch, not the list's own: named above them.
     if (shipped) return [copy, branchFrom, "sep", pickItem, "sep", ...(current ? [{ heading: <>Resets move <span className="mono">{current}</span></> }] : []), ...resets, "sep", ...tags];
     return [
@@ -111,6 +117,7 @@ export function useCommitMenu({
       "sep",
       { id: "revert", label: "Revert commit", icon: "undo", hint: needLocal, disabled: !!needLocal, run: () => revert.mutate({ projectId: pid, branch, sha: c.sha }) },
       pickItem,
+      ...rebaseItem,
       "sep",
       ...resets,
       "sep",

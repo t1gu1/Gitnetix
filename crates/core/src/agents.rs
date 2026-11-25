@@ -206,8 +206,12 @@ struct Inner {
     removed: HashSet<String>,
     /// What each session's current run said about usage limits, read when it ends.
     seen: HashMap<String, Seen>,
-    /// The stdin of each session's run that asks before acting, by run number: answers go in there. Dropped, it closes.
+    /// The stdin of each session's run that reads one (Claude Code, Copilot ACP), by run number: answers and stops go in
+    /// there. Dropped, it closes.
     answers: HashMap<String, (u64, mpsc::UnboundedSender<String>)>,
+    /// Sessions whose turn gave its result while background work went on: true once one of those tasks ended by itself,
+    /// which runs another turn. Stopping the last one by hand runs none: its stdin closes then (`tasks_listed`).
+    idle: HashMap<String, bool>,
     /// When each session's background tasks were last sent to the UI, in ms: progress goes out at most once a second.
     tasks_sent: HashMap<String, i64>,
     /// When the file `sync` last read was modified, and its size: a write within the same few ms keeps the time on some systems.
@@ -700,6 +704,7 @@ impl AgentManager {
             }
             if status != AgentStatus::Running && status != AgentStatus::Paused {
                 g.answers.remove(id);
+                g.idle.remove(id);
             }
         }
         let _ = self.events.send(Event::AgentStatus { session_id: id.into(), status });
@@ -1134,6 +1139,8 @@ impl AgentManager {
         // Outside Bypass, Claude Code asks Gitnetix before what needs approval (`control_request` on stdout), Copilot in ACP
         // (`session/request_permission`), and reads the answer on stdin, which stays open until its result.
         let mut asks = false;
+        // Claude Code reads stdin in every mode: a background task's Stop goes in there too (`stop_task`).
+        let mut input = false;
         // A Copilot ACP run's first requests, and where it is (`handle_copilot_acp`).
         let mut acp_run = None;
         match r.provider.as_str() {
@@ -1144,8 +1151,10 @@ impl AgentManager {
                     cmd.args(["--permission-mode", m]);
                 }
                 asks = mode != Some("bypassPermissions");
+                input = true;
+                cmd.args(["--input-format", "stream-json"]);
                 if asks {
-                    cmd.args(["--input-format", "stream-json", "--permission-prompt-tool", "stdio"]);
+                    cmd.args(["--permission-prompt-tool", "stdio"]);
                 }
                 if !r.model.is_empty() {
                     cmd.args(["--model", &r.model]);
@@ -1237,7 +1246,7 @@ impl AgentManager {
             }
         }
         let (kill_tx, mut kill_rx) = oneshot::channel::<()>();
-        let (answer_tx, answers) = if asks {
+        let (answer_tx, answers) = if asks || input {
             let (tx, rx) = mpsc::unbounded_channel::<String>();
             (Some(tx), Some(rx))
         } else {
@@ -1429,6 +1438,10 @@ impl AgentManager {
                 let mut replied = false;
                 // A sub agent's: its words are a step of the agent's work, not a reply to you.
                 let sub = v["parent_tool_use_id"].is_string();
+                // The agent's own words: a turn runs again.
+                if !sub {
+                    self.inner.lock().unwrap().idle.remove(id);
+                }
                 for block in v["message"]["content"].as_array().into_iter().flatten() {
                     match block["type"].as_str() {
                         Some("text") if sub => {
@@ -1502,7 +1515,9 @@ impl AgentManager {
                     }
                     let n = seen.done.map_or(0, |d| d.0);
                     seen.done = Some((n + turns, v["total_cost_usd"].as_f64()));
+                    g.idle.insert(id.into(), false);
                 } else {
+                    self.inner.lock().unwrap().idle.insert(id.into(), false);
                     let why = v["result"].as_str().unwrap_or("error");
                     ai::flag_signed_out("claude", why);
                     // A usage limit: the run's end says it, and waits for its reset.
@@ -1696,6 +1711,20 @@ impl AgentManager {
         Ok(())
     }
 
+    /// Stop `task`, one thing the run of `id` has going in the background (Claude Code's `stop_task`). The agent is not
+    /// told: once its turn ended and the last task is stopped, the run ends (`tasks_listed`).
+    pub fn stop_task(&self, id: &str, task: &str) -> Result<()> {
+        let g = self.inner.lock().unwrap();
+        let s = g.sessions.get(id).ok_or_else(|| Error::NotFound(format!("agent session {id}")))?;
+        if !s.tasks.iter().any(|t| t.id == task) {
+            return Err(Error::Invalid("That task has ended already.".into()));
+        }
+        // Another Gitnetix on this folder runs it: the stop goes in from there.
+        let (_, tx) = g.answers.get(id).ok_or_else(|| Error::Invalid("This agent runs in another Gitnetix window: stop it there.".into()))?;
+        let line = json!({ "type": "control_request", "request_id": format!("stop-{task}"), "request": { "subtype": "stop_task", "task_id": task } });
+        tx.send(format!("{line}\n")).map_err(|_| Error::Invalid("The agent's run has ended.".into()))
+    }
+
     /// The run `run` of `id` gave its result: its stdin closes, so the CLI ends.
     fn close_input(&self, id: &str, run: u64) {
         let mut g = self.inner.lock().unwrap();
@@ -1731,6 +1760,10 @@ impl AgentManager {
                     })
                 })
                 .collect();
+            // The last one stopped by hand after the turn: no turn follows, so its stdin closes and the run ends.
+            if s.tasks.is_empty() && g.idle.get(id) == Some(&false) {
+                g.answers.remove(id);
+            }
         }
         self.tasks_changed(id, true);
     }
@@ -1761,6 +1794,12 @@ impl AgentManager {
         let t = {
             let mut g = self.inner.lock().unwrap();
             let t = g.sessions.get(id).and_then(|s| s.tasks.iter().find(|t| v["task_id"] == t.id.as_str()).cloned());
+            // Ended by itself after the turn: the CLI runs another, which tells the agent.
+            if v["status"] != "stopped" {
+                if let Some(natural) = g.idle.get_mut(id) {
+                    *natural = true;
+                }
+            }
             let seen = g.seen.entry(id.into()).or_default();
             if t.is_none() && !seen.started {
                 seen.cut_off = true;
@@ -2092,6 +2131,48 @@ mod tests {
         m.handle_stream_json("a", r#"{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"b1","task_type":"local_bash","description":"pnpm dev"}]}"#);
         ended(&m, "a", false, &cli("none"));
         assert!(tasks(&m).is_empty());
+    }
+
+    // Shapes from Claude Code 2.1.332: `stop_task` answers with the task `stopped`, an empty list, and no turn after it.
+    #[test]
+    fn a_stopped_background_task_ends_a_run_whose_turn_is_over() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = AgentManager::new(broadcast::channel(64).0, dir.path());
+        running(&m, "a");
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        m.inner.lock().unwrap().answers.insert("a".into(), (1, tx));
+        let open = |m: &AgentManager| m.inner.lock().unwrap().answers.contains_key("a");
+        let tasks = |ids: &[&str]| {
+            let list: Vec<Value> = ids.iter().map(|i| json!({ "task_id": i, "task_type": "local_bash", "description": i })).collect();
+            json!({ "type": "system", "subtype": "background_tasks_changed", "tasks": list }).to_string()
+        };
+        let ended = |tid: &str, status: &str| json!({ "type": "system", "subtype": "task_notification", "task_id": tid, "status": status }).to_string();
+        let result = r#"{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"ok"}"#;
+        let reply = r#"{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"On it."}]}}"#;
+
+        m.handle_stream_json("a", &tasks(&["b1", "b2"]));
+        assert!(m.stop_task("a", "zz").is_err(), "not one of its tasks");
+        m.stop_task("a", "b1").unwrap();
+        let sent: Value = serde_json::from_str(&rx.try_recv().unwrap()).unwrap();
+        assert_eq!((sent["type"].as_str(), &sent["request"]), (Some("control_request"), &json!({ "subtype": "stop_task", "task_id": "b1" })));
+        // Mid-turn: the agent goes on.
+        m.handle_stream_json("a", &ended("b1", "stopped"));
+        m.handle_stream_json("a", &tasks(&["b2"]));
+        assert!(open(&m));
+        // Its turn over, b2 ends by itself: the CLI runs a turn about it, which may ask, so stdin stays open.
+        m.handle_stream_json("a", result);
+        m.handle_stream_json("a", &ended("b2", "completed"));
+        m.handle_stream_json("a", &tasks(&[]));
+        assert!(open(&m), "a turn follows");
+        // That turn leaves b3 going; stopped by hand after it, no turn follows: stdin closes, so the run ends.
+        m.handle_stream_json("a", reply);
+        m.handle_stream_json("a", &tasks(&["b3"]));
+        m.handle_stream_json("a", result);
+        m.stop_task("a", "b3").unwrap();
+        m.handle_stream_json("a", &ended("b3", "stopped"));
+        m.handle_stream_json("a", &tasks(&[]));
+        assert!(!open(&m));
+        assert!(m.stop_task("a", "b3").is_err(), "ended already");
     }
 
     #[test]

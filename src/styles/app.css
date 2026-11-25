@@ -1560,6 +1560,159 @@ html.scanning body {
   line-height: 1.5;
 }
 
+/* A repository with no commit yet, in place of the map: the first branch's name on the left, the map as it will look on the right. */
+.first-branch {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: minmax(0, 520px) minmax(0, 1fr);
+  align-content: start;
+  gap: 64px;
+  padding: 56px 64px;
+  background: linear-gradient(180deg, var(--ground), var(--bg) 70%);
+  animation: fade-in var(--t) var(--ease);
+}
+.first-branch-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.first-branch-form h2 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
+}
+.first-branch-lede {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.first-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.first-opt {
+  align-items: flex-start;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--line2);
+  border-radius: var(--r);
+  background: var(--panel);
+  transition: border-color var(--t-fast) var(--ease);
+}
+.first-opt:hover {
+  border-color: var(--faint);
+}
+.first-opt:has(input:checked) {
+  border-color: var(--fg);
+  background: var(--raised);
+}
+.first-opt > input,
+.first-files > input {
+  margin-top: 3px;
+}
+/* Level with the custom row's input, taller than a name. */
+.first-opt:has(.first-opt-custom) > input {
+  margin-top: 8px;
+}
+.first-opt-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.first-opt-name {
+  font: 15px/22px var(--mono);
+  color: var(--fg);
+}
+.first-opt-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 18px;
+}
+.first-opt-custom {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 500;
+}
+.first-opt-custom > .input {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  font-size: 12.5px;
+}
+.first-files {
+  align-items: flex-start;
+  margin-top: 8px;
+}
+.first-files .first-opt-text {
+  gap: 2px;
+}
+.first-files-list {
+  font-size: 11.5px;
+  line-height: 18px;
+  white-space: pre-wrap;
+}
+.first-branch-go {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  min-width: 0;
+}
+.first-branch-go > .btn {
+  max-width: 100%;
+}
+.first-branch-go > .modal-hint {
+  flex: 0 0 auto;
+}
+.first-preview {
+  min-width: 0;
+  padding-left: 48px;
+  border-left: 1px solid var(--line);
+  font-size: 12px;
+}
+.first-preview-map {
+  position: relative;
+  height: 200px;
+  margin: 24px 0 0 -20px;
+  pointer-events: none;
+}
+.first-preview .map-ver {
+  display: block;
+  max-width: 250px;
+}
+/* Its bar holds only the title, which a narrower window hides: no empty strip then. */
+@container map (max-width: 1100px) {
+  .map-bar.first-bar {
+    display: none;
+  }
+}
+/* Narrow: the preview goes under the form. */
+@media (max-width: 900px) {
+  .first-branch {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+    padding: 24px 16px;
+  }
+  .first-preview {
+    padding: 24px 0 0;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+  }
+  .first-preview-map {
+    margin-left: -4px;
+  }
+}
+
 /* side nav (the website's release notes demo) */
 .sidenav {
   flex: 0 0 var(--sidenav-w, 260px);
@@ -2885,7 +3038,6 @@ button.map-line-chip[aria-disabled] {
 /* A file picked in the column, floating over the rest of the map with the same margins. */
 .map-diff {
   position: absolute;
-  container: map-diff / inline-size;
   top: 16px;
   bottom: 16px;
   left: 16px;
@@ -2903,11 +3055,23 @@ button.map-line-chip[aria-disabled] {
 .map-diff > .code-file {
   background: var(--panel);
 }
-/* A narrow window keeps the arrows but drops "File 1 of 3", so close still fits. */
-@container map-diff (max-width: 520px) {
-  .map-diff .code-files > span {
-    display: none;
-  }
+/* Everything but close; a narrow panel scrolls it sideways instead of squeezing the path away. */
+.code-file-scroll {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px 10px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  /* A 10px fade left of close, in the bar's gap (padding instead of margin), so the last button scrolls clear of it. */
+  margin-right: -10px;
+  padding-right: 10px;
+  -webkit-mask-image: linear-gradient(to left, transparent, #000 10px);
+  mask-image: linear-gradient(to left, transparent, #000 10px);
+}
+.code-file-scroll > :not(.grow) {
+  flex: none;
 }
 /* Over the Worktrees page, where there is no map (FileOver). */
 .modal-scrim > .map-diff {
@@ -3419,7 +3583,7 @@ button.map-card-key:hover {
   padding: 6px 12px 6px 16px;
   border-bottom: 1px solid var(--line);
 }
-.code-file > :not(.code-path, .code-note, .hint, .grow) {
+.code-file > :not(.code-path, .code-note, .hint, .grow, .code-file-scroll) {
   flex: none;
 }
 .code-path {
@@ -5582,7 +5746,7 @@ button.picker-act {
 }
 /* The merge options inline in the chat, as in their modal. */
 .ag-finish {
-  width: min(100%, 520px);
+  width: min(100%, 640px);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -5759,7 +5923,7 @@ button.picker-act {
 }
 .ag-bg-task {
   display: grid;
-  grid-template-columns: 14px minmax(0, 1fr) auto;
+  grid-template-columns: 14px minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 2px 8px;
   font-size: 12.5px;
@@ -5774,6 +5938,15 @@ button.picker-act {
   font-size: 11.5px;
   font-variant-numeric: tabular-nums;
   color: var(--faint);
+}
+/* Each task's Stop: a small square, on its line without making it taller. */
+.ag-bg-stop {
+  width: 22px;
+  height: 22px;
+  margin: -3px -6px -3px 0;
+}
+.ag-bg-stop:hover:not(:disabled) {
+  color: var(--del);
 }
 .ag-bg-agents,
 .ag-bg-doing {

@@ -1,5 +1,6 @@
 import { type ClipboardEvent, type CSSProperties, type KeyboardEvent, type ReactNode, type RefObject, memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useAction, useAgentBlobs, useAgentDiff, useAgentFile, useAiCatalog, useConfig, useSkills } from "../api/hooks";
 import { captureArtifact, clipboardFiles, copyAgentFile, downloadAgentFile, isLocal, localHead, localImage, onPathDrop, openArtifact, revealPath, rpc } from "../api/transport";
@@ -422,6 +423,88 @@ function LimitCard({ session, limit, onCancel }: { session: string; limit: Agent
   );
 }
 
+type AuthStatus = { loggedIn: boolean; expiresAt: string | null };
+
+// Each CLI's sign-in as the first card after its last sign-in saw it, kept while the app runs. Every agent that failed
+// on the same expired sign-in sees the one new sign-in; a run failing after it starts over. shortcut: lost on restart,
+// then Continue waits for one more sign-in; save it if that bites.
+const authSeen = new Map<string, { status: string; signedIn?: number }>();
+
+/** Whether `provider`'s CLI signed in again since its run failed at `failedAt`. An expired or revoked sign-in still
+ * reads as signed in: only a new one differs from what the cards saw. */
+function signedInAgain(provider: string, a: AuthStatus, failedAt: number) {
+  const status = JSON.stringify(a);
+  let seen = authSeen.get(provider);
+  if (!seen || (seen.signedIn && failedAt > seen.signedIn)) authSeen.set(provider, (seen = { status }));
+  if (!a.loggedIn || status === seen.status) return false;
+  seen.signedIn ??= Date.now();
+  return true;
+}
+
+/** Agent `session`'s run stopped because its CLI's sign-in expired. Sign in opens the CLI's sign-in in a terminal; the
+ * card asks the CLI every 3 s and shows Continue once it signed in again. A CLI that can't say shows Continue at once. */
+function SignInCard({ provider, failedAt, onContinue }: { provider: string; failedAt: number; onContinue: () => void }) {
+  const qc = useQueryClient();
+  const name = useAiCatalog().data?.providers.find((p) => p.info.id === provider)?.info.name ?? provider;
+  const [opened, setOpened] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<unknown>(null);
+  const fresh = (a?: AuthStatus) => !!a && signedInAgain(provider, a, failedAt);
+  const auth = useQuery({
+    queryKey: ["aiAuth", provider],
+    queryFn: () => rpc<AuthStatus>("ai.authStatus", { id: provider }),
+    refetchInterval: (q) => (q.state.error || fresh(q.state.data) ? false : 3000),
+    retry: false,
+    gcTime: 0,
+  });
+  const done = auth.isError || fresh(auth.data);
+  const signIn = () => {
+    setBusy(true);
+    setError(null);
+    // The same sign-in the app-wide prompt offers: this card takes over from it.
+    qc.setQueryData(["aiSignedOut"], null);
+    rpc("ai.signIn", { id: provider })
+      .then(() => setOpened(true), setError)
+      .finally(() => setBusy(false));
+  };
+  const title = done ? (auth.isError ? "Signed in again? You can continue" : "You're signed in, you can continue") : opened ? "When you're done, you can continue" : `Sign in to ${name} again`;
+  return (
+    <div className="ag-limit" role="group" aria-label={title}>
+      <Icon name={done ? "check" : "lock"} size={18} />
+      <div className="ag-limit-body grow">
+        <span className="ag-limit-title">{title}</span>
+        <span className="ag-limit-when">
+          {done
+            ? "The agent goes on where it stopped."
+            : opened
+              ? "Finish signing in in the terminal and your browser. Continue shows here once you're signed in."
+              : isLocal
+                ? `Its sign-in expired, so the agent stopped. Sign in opens a terminal running ${provider === "claude" ? "claude auth login" : provider}.`
+                : "Its sign-in expired, so the agent stopped. Sign in on the computer running Gitnetix: Continue shows here once you're signed in."}
+        </span>
+        {!!error && <span className="ag-limit-msg">{errText(error instanceof Error ? error.message : String(error))}</span>}
+        <div className="ag-limit-actions">
+          {done ? (
+            <button type="button" className="btn btn-primary btn-sm" onClick={onContinue}>
+              <Icon name="play" size={12} />
+              Continue
+            </button>
+          ) : opened ? (
+            <span className="spinner" aria-label="Waiting for the sign-in" />
+          ) : (
+            isLocal && (
+              <button type="button" className="btn btn-primary btn-sm" disabled={busy} onClick={signIn}>
+                {busy && <span className="spinner" />}
+                Sign in
+              </button>
+            )
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** An action agent `session`'s run waits on you for. Allow runs it; Refuse has the agent look for another way, or say what is blocked. */
 function AskCard({ session, ask }: { session: string; ask: AgentAsk }) {
   const answer = useAction("agents.answer", { invalidate: [["agents"]] });
@@ -450,10 +533,12 @@ function AskCard({ session, ask }: { session: string; ask: AgentAsk }) {
 
 const TASK_ICON: Record<AgentTask["kind"], string> = { workflow: "layers", agent: "sparkle", shell: "terminal", other: "more" };
 
-/** What an agent's run left going in the background: its turn ends, and its close options show, only once all of it ends. */
-function TasksCard({ tasks }: { tasks: AgentTask[] }) {
+/** What an agent's run left going in the background: its turn ends, and its close options show, only once all of it ends.
+ *  `session`: the agent's id, for each task's Stop (Claude Code's `stop_task`: that task alone ends, the run goes on). */
+function TasksCard({ tasks, session }: { tasks: AgentTask[]; session?: string }) {
   // Their running times count up.
   const now = useNow(1000);
+  const stop = useAction<unknown, { id: string; task: string }>("agents.stopTask");
   return (
     <div className="ag-bg" role="group" aria-label="Working in the background">
       <div className="ag-bg-head">
@@ -466,6 +551,18 @@ function TasksCard({ tasks }: { tasks: AgentTask[] }) {
             <Icon name={TASK_ICON[t.kind]} size={13} />
             <span className="ag-bg-what ellipsis" title={t.description}>{t.description || "Background task"}</span>
             <span className="ag-bg-time">{took(Math.max(0, now - t.at))}</span>
+            {session && (
+              <button
+                type="button"
+                className="btn btn-ghost btn-icon ag-bg-stop"
+                aria-label={`Stop ${t.description || "this background task"}`}
+                data-tip="Stop this task"
+                disabled={stop.isPending && stop.variables?.task === t.id}
+                onClick={() => stop.mutate({ id: session, task: t.id })}
+              >
+                <Icon name="stop" size={12} />
+              </button>
+            )}
             {t.agents && (
               <span className="ag-bg-agents">
                 <span className="ag-bg-bar" aria-hidden="true"><i style={{ width: `${(100 * t.agents[0]) / Math.max(1, t.agents[1])}%` }} /></span>
@@ -562,6 +659,8 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
   const canRetry = !!session && !working && !thinking && !retry.isPending && list.at(-1)?.kind === "err";
   const again = useRef<() => void>(undefined);
   again.current = () => session && retry.mutate({ id: session });
+  // The run failed because its CLI's sign-in expired (signed_out in ai.rs): a card offers to continue once signed in again.
+  const signedOut = useMemo(() => canRetry && list.slice(list.map((b) => b.kind).lastIndexOf("you") + 1).some((b) => b.kind === "err" && /failed to authenticate|please run \/login/i.test(b.text)), [list, canRetry]);
   const unqueue = useAction<string>("agents.unqueue", { invalidate: [["agents"], ["worktrees"]] });
   const sendNow = useAction("agents.sendNow", { invalidate: [["agents"], ["worktrees"]] });
   // Blocks drawn since you scrolled up: a wait is drawn as "Your turn!", not as a block.
@@ -646,7 +745,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
           return (
             <div key={i} className="ag-err">
               <span>✕ {errText(b.text)}</span>
-              {canRetry && i === list.length - 1 && (
+              {canRetry && !signedOut && i === list.length - 1 && (
                 <button type="button" className="btn btn-sm ag-retry" onClick={() => again.current?.()}>
                   <Icon name="refresh" size={12} />
                   Retry
@@ -673,7 +772,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
       } else if (i >= from) out.push(one(list[i], i, opens.has(i)));
     }
     return out;
-  }, [list, fold, from, task, opens, mark, me, session, canRetry, held]);
+  }, [list, fold, from, task, opens, mark, me, session, canRetry, signedOut, held]);
   return (
     <div
       ref={ref}
@@ -720,7 +819,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
         </div>
       )}
       {session && asks.map((a) => <AskCard key={a.id} session={session} ask={a} />)}
-      {working && tasks.length > 0 && <TasksCard tasks={tasks} />}
+      {working && tasks.length > 0 && <TasksCard tasks={tasks} session={session} />}
       {thinking && !asks.length && (
         <div className="ag-act" role="status" aria-label="Agent is thinking">
           {fresh && mark}
@@ -728,6 +827,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
         </div>
       )}
       {held && <LimitCard session={session} limit={limit} onCancel={onCancelLimit} />}
+      {signedOut && <SignInCard provider={provider ?? "claude"} failedAt={list.at(-1)?.at ?? 0} onContinue={() => again.current?.()} />}
       {queued.map((t, i) => (
         <div key={i} className="ag-you ag-queued">
           <div className="ag-you-row">

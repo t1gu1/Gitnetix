@@ -1067,6 +1067,14 @@ impl Git {
         self.run(&["branch", "--no-track", name, from]).await.map(|_| ())
     }
 
+    /// A branch only origin has (pushed from another clone) gets its local copy tracking origin, as `git switch` makes it.
+    pub async fn ensure_local_branch(&self, name: &str) -> Result<()> {
+        if !self.ref_exists(&format!("refs/heads/{name}")).await? && self.ref_exists(&format!("refs/remotes/origin/{name}")).await? {
+            self.run(&["branch", "--track", name, &format!("origin/{name}")]).await?;
+        }
+        Ok(())
+    }
+
     /// Switch branch. Uncommitted work comes along (git's default when it
     /// does not conflict with the target).
     pub async fn switch(&self, name: &str) -> Result<()> {
@@ -1095,8 +1103,8 @@ impl Git {
         self.run(&["branch", "--set-upstream-to", upstream, branch]).await.map(|_| ())
     }
 
-    /// Rename `from` to `to` on origin in one push: both land or neither does. Leases: `from` must
-    /// still be at `sha` (nothing pushed since is lost) and `to` must not exist there yet.
+    /// Rename `from` to `to` on origin in one push: both land or neither does (without `--atomic`, `to` lands
+    /// first). Leases: `from` must still be at `sha` (nothing pushed since is lost) and `to` must not exist there yet.
     pub async fn push_rename(&self, from: &str, to: &str, sha: &str) -> Result<String> {
         let (from, to) = (format!("refs/heads/{from}"), format!("refs/heads/{to}"));
         self.push_atomic(&[&format!("--force-with-lease={from}:{sha}"), &format!("--force-with-lease={to}:"), &format!("{sha}:{to}"), &format!(":{from}")]).await
@@ -1880,11 +1888,30 @@ impl Git {
         self.push_with(&["push", "--force-with-lease", "--force-if-includes", remote, &format!("{branch}:refs/heads/{branch}")]).await
     }
 
-    /// Push several refs to origin: all of them land, or none do.
+    /// Push several refs to origin: all of them land, or none do. An origin that refuses `--atomic` (Azure DevOps)
+    /// gets them one push at a time, in the order given, each with every `--` option (leases): the first refused stops the rest.
     pub async fn push_atomic(&self, refs: &[&str]) -> Result<String> {
         let mut args = vec!["push", "--atomic", "origin"];
         args.extend(refs);
-        self.push_with(&args).await
+        match self.push_with(&args).await {
+            Err(Error::Git { stderr, .. }) if stderr.contains("does not support --atomic push") => {}
+            done => return done,
+        }
+        let (options, specs): (Vec<&str>, Vec<&str>) = refs.iter().partition(|r| r.starts_with("--"));
+        let mut out = Vec::new();
+        for (i, spec) in specs.iter().enumerate() {
+            let mut args = vec!["push"];
+            args.extend(&options);
+            args.extend(["origin", spec]);
+            match self.push_with(&args).await {
+                Ok(o) => out.push(o),
+                Err(Error::Git { cmd, stderr }) if i > 0 => {
+                    return Err(Error::Git { cmd, stderr: format!("{} already reached origin, then: {stderr}", specs[..i].join(", ")) });
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(out.join("\n"))
     }
 
     async fn push_with(&self, args: &[&str]) -> Result<String> {

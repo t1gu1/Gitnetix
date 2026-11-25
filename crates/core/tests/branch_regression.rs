@@ -319,6 +319,74 @@ async fn br23_a_hotfix_does_not_take_in_old_branches() {
     assert_eq!(e.view("fix/fresh").await["parent"], "release/1.0.1");
 }
 
+/// BR-24: rename a pushed branch on origin too, where origin refuses `git push --atomic` (Azure DevOps does).
+/// The rename still goes through: the new name on origin, the old one gone, the local branch tracking the new one.
+#[tokio::test]
+async fn br24_rename_on_origin_without_atomic_push() {
+    let e = env().await;
+    sh(&e.origin, &["config", "receive.advertiseAtomic", "false"]);
+    sh(&e.repo, &["switch", "-qc", "fix/MNC-7463_MNC-7473_migration"]);
+    commit_file(&e.repo, "a.txt", "a\n");
+    sh(&e.repo, &["push", "-q", "-u", "origin", "fix/MNC-7463_MNC-7473_migration"]);
+    let tip = rev(&e.repo, "HEAD");
+
+    e.call("branches.rename", json!({ "branch": "fix/MNC-7463_MNC-7473_migration", "name": "fix/MNC-7473_migration", "remote": true })).await;
+    assert_eq!(rev(&e.origin, "refs/heads/fix/MNC-7473_migration"), tip);
+    assert!(rev(&e.origin, "refs/heads/fix/MNC-7463_MNC-7473_migration").is_empty(), "the old name is gone from origin");
+    assert_eq!(e.head(&e.repo), "fix/MNC-7473_migration");
+    assert_eq!(git_out(&e.repo, &["rev-parse", "--abbrev-ref", "@{upstream}"]), "origin/fix/MNC-7473_migration");
+}
+
+/// BR-25: a folder with no repository, added as a project. It is refused with `not_repo` and its path until the user
+/// asks for a repository there. The map then gets an unborn trunk, and the first branch takes the chosen name and a
+/// first commit with the folder's files, minus the ignored ones. Not from `env()`: it starts with no repository.
+#[tokio::test]
+async fn br25_first_branch_of_a_new_repository() {
+    let tmp = tempfile::tempdir().unwrap();
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let site = tmp.path().join("site");
+    for (f, body) in [("README.md", "# site\n"), ("src/main.ts", "x\n"), (".gitignore", "dist/\n"), ("dist/out.js", "x\n")] {
+        std::fs::create_dir_all(site.join(f).parent().unwrap()).unwrap();
+        std::fs::write(site.join(f), body).unwrap();
+    }
+    let path = site.to_string_lossy().into_owned();
+    let refused = rpc::call(&k, "projects.add", json!({ "paths": [path] })).await.unwrap_err();
+    assert_eq!(gitnetix_core::ErrorBody::from(&refused).path.as_deref(), Some(path.as_str()), "{refused}");
+    assert!(!site.join(".git").exists(), "no repository without asking");
+
+    let added = rpc::call(&k, "projects.add", json!({ "paths": [path], "init": true })).await.unwrap();
+    let pid = added[0]["id"].as_str().unwrap().to_string();
+    config(&site, "t@example.com");
+    let call = |m: &'static str, mut p: Value| {
+        p["projectId"] = json!(pid);
+        rpc::call(&k, m, p)
+    };
+    let ov = call("workspace.overview", json!({})).await.unwrap();
+    assert_eq!((ov["unborn"].as_bool(), ov["branches"].as_array().map(Vec::len)), (Some(true), Some(0)), "{ov}");
+
+    assert!(call("workspace.firstBranch", json!({ "name": "two words", "files": true })).await.is_err());
+    assert!(call("workspace.firstBranch", json!({ "name": "-main", "files": true })).await.is_err());
+    assert_eq!(git_out(&site, &["status", "--porcelain"]).lines().count(), 3, "refused names leave the folder as it was");
+    call("workspace.firstBranch", json!({ "name": "trunk", "files": true })).await.unwrap();
+    assert_eq!(git_out(&site, &["symbolic-ref", "--short", "HEAD"]), "trunk");
+    assert_eq!(git_out(&site, &["ls-tree", "-r", "--name-only", "HEAD"]), ".gitignore\nREADME.md\nsrc/main.ts");
+    assert_eq!(git_out(&site, &["log", "--format=%s"]), "Initial commit");
+    let ov = call("workspace.overview", json!({})).await.unwrap();
+    assert_eq!((ov["unborn"].as_bool(), ov["defaultBranch"].as_str()), (Some(false), Some("trunk")), "{ov}");
+    assert!(call("workspace.firstBranch", json!({ "name": "main" })).await.is_err(), "only before the first commit");
+
+    // Without the files: an empty first commit, the files left as they were.
+    let empty = tmp.path().join("empty");
+    std::fs::create_dir(&empty).unwrap();
+    std::fs::write(empty.join("a.txt"), "a\n").unwrap();
+    let added = rpc::call(&k, "projects.add", json!({ "paths": [empty.to_string_lossy()], "init": true })).await.unwrap();
+    config(&empty, "t@example.com");
+    sh(&empty, &["add", "a.txt"]);
+    rpc::call(&k, "workspace.firstBranch", json!({ "projectId": added[0]["id"], "name": "main" })).await.unwrap();
+    assert_eq!(git_out(&empty, &["ls-tree", "-r", "--name-only", "HEAD"]), "", "even over a file staged by hand");
+    assert_eq!(git_out(&empty, &["status", "--porcelain"]), "A  a.txt");
+}
+
 // ---------------------------------------------------------------- Suggested actions
 
 /// feat/x pushed with a.txt, then a teammate pushes `theirs` (file, body) on top, fetched here.
@@ -463,6 +531,43 @@ async fn cm13_create_a_branch_from_a_commit() {
     e.refused("items.create", json!({ "from": "main", "at": "not-a-sha", "kind": "fix", "description": "", "branchName": "fix/bad", "where": "switch" })).await;
     e.refused("items.create", json!({ "from": "main", "at": "deadbeef", "kind": "fix", "description": "", "branchName": "fix/gone", "where": "switch" })).await;
     assert_eq!(git_out(&e.repo, &["branch", "--list", "fix/bad", "fix/gone"]), "");
+}
+
+/// CM-14: release/4.1.0 cut from release/4.0.0 and targeting it, both pushed, 4.0.0 checked out. From 4.1.0's commit list, "Rebase
+/// release/4.0.0 onto this commit" on its second commit of three: 4.0.0 ships those two commits, a fast-forward pushed
+/// without force. 4.1.0 is kept, still under 4.0.0, ahead by its last commit only. 4.0.0 still targets main.
+#[tokio::test]
+async fn cm14_rebase_a_release_onto_a_commit_of_the_next_one() {
+    let e = env().await;
+    e.call("releases.create", json!({ "version": "4.0.0", "kind": "next" })).await;
+    sh(&e.repo, &["switch", "-q", "release/4.0.0"]);
+    commit_file(&e.repo, "a.txt", "a\n");
+    e.call("workspace.push", json!({ "branch": "release/4.0.0" })).await;
+    e.call("releases.create", json!({ "version": "4.1.0", "kind": "next", "from": "release/4.0.0" })).await;
+    // Target release/4.0.0: a release otherwise sits under the default branch.
+    e.call("branches.setParent", json!({ "branch": "release/4.1.0", "parent": "release/4.0.0" })).await;
+    sh(&e.repo, &["switch", "-q", "release/4.1.0"]);
+    let mut picked = Vec::new();
+    for f in ["b.txt", "c.txt", "d.txt"] {
+        commit_file(&e.repo, f, "x\n");
+        picked.push(rev(&e.repo, "HEAD"));
+    }
+    e.call("workspace.push", json!({ "branch": "release/4.1.0" })).await;
+    sh(&e.repo, &["switch", "-q", "release/4.0.0"]);
+    assert_eq!(e.view("release/4.1.0").await["parent"], "release/4.0.0");
+
+    let r = e.call("workspace.rebase", json!({ "branch": "release/4.0.0", "onto": picked[1], "resolve": true })).await;
+    assert_eq!((r["conflicts"].clone(), r["forcePushTo"].clone()), (json!([]), Value::Null), "a fast-forward: {r}");
+    assert_eq!(e.head(&e.repo), "release/4.0.0");
+    assert_eq!(rev(&e.repo, "release/4.0.0"), picked[1]);
+    e.call("workspace.push", json!({ "branch": "release/4.0.0" })).await;
+    assert_eq!(rev(&e.origin, "release/4.0.0"), picked[1]);
+
+    let v = e.view("release/4.0.0").await;
+    assert_eq!((v["parent"].as_str(), v["ahead"].as_u64()), (Some("main"), Some(3)), "{v}");
+    let v = e.view("release/4.1.0").await;
+    assert_eq!((v["parent"].as_str(), v["ahead"].as_u64(), v["behind"].as_u64()), (Some("release/4.0.0"), Some(1), Some(0)), "{v}");
+    assert_eq!(rev(&e.repo, "release/4.1.0"), picked[2]);
 }
 
 /// CM-03: a pushed branch reset back a commit from the commit list. The map suggests Force push: a plain push
@@ -653,6 +758,30 @@ async fn wt01_worktree_create_commit_rebase_and_squash_merge() {
     assert!(rev(&e.repo, "refs/heads/feat/wt").is_empty());
     assert!(!wt.exists(), "worktree folder removed");
     assert_eq!(e.head(&e.repo), "main");
+}
+
+/// WT-11: a release whose branch only origin has (pushed from another clone, local copy gone). Starting an agent
+/// on it brings the release branch down, tracking origin, and starts the worktree from it.
+#[tokio::test]
+async fn wt11_agent_on_a_release_only_origin_has() {
+    let e = env().await;
+    e.call("releases.create", json!({ "version": "1.0.1", "kind": "hotfix" })).await;
+    commit_file(&e.repo, "fix.txt", "x\n");
+    sh(&e.repo, &["switch", "-q", "-c", "tmp"]);
+    sh(&e.repo, &["push", "-q", "origin", "tmp:release/1.0.1"]);
+    sh(&e.repo, &["fetch", "-q", "origin"]);
+    sh(&e.repo, &["switch", "-q", "main"]);
+    sh(&e.repo, &["branch", "-qD", "release/1.0.1", "tmp"]);
+    assert!(rev(&e.repo, "refs/heads/release/1.0.1").is_empty());
+
+    let r = e.call("items.create", json!({ "release": "1.0.1", "kind": "fix", "description": "x", "branchName": "fix/x", "where": "worktree" })).await;
+    let wt = PathBuf::from(r["worktree"].as_str().unwrap_or_else(|| panic!("no worktree: {r}")));
+    assert_eq!(e.head(&wt), "fix/x");
+    assert_eq!(rev(&e.repo, "fix/x"), rev(&e.repo, "origin/release/1.0.1"), "starts at origin's release");
+    assert_eq!(rev(&e.repo, "release/1.0.1"), rev(&e.repo, "origin/release/1.0.1"));
+    assert_eq!(git_out(&e.repo, &["rev-parse", "--abbrev-ref", "release/1.0.1@{u}"]), "origin/release/1.0.1");
+    assert_eq!(e.head(&e.repo), "main", "the main checkout stays where it was");
+    assert_eq!(e.view("fix/x").await["parent"], "release/1.0.1");
 }
 
 /// WT-02: an existing branch opened in a worktree and closed again. Closing is refused while the worktree holds

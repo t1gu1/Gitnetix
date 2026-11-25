@@ -272,6 +272,24 @@ async fn cli_output(provider: &str, arg: &str) -> Result<String> {
     Ok(String::from_utf8_lossy(&out.stdout).into())
 }
 
+/// Claude Code's saved sign-in: `{ loggedIn, expiresAt }`. It reads only the saved credentials, so an expired or revoked
+/// sign-in still counts as signed in: a new sign-in shows as a new `expiresAt`.
+pub async fn auth_status(provider: &str) -> Result<Value> {
+    if provider != "claude" {
+        return Err(Error::Invalid(format!("{provider} can't say whether it is signed in")));
+    }
+    let (bin, path) = cli_path(provider)?;
+    let mut cmd = Command::new(path);
+    crate::shell::without_appimage(cmd.as_std_mut());
+    cmd.args(["auth", "status"]).current_dir(std::env::temp_dir()).stdin(Stdio::null()).kill_on_drop(true);
+    let out = tokio::time::timeout(Duration::from_secs(20), cmd.output())
+        .await
+        .map_err(|_| Error::Ai(format!("{bin} took over 20 s to say whether it is signed in")))??;
+    // Signed out, it may exit with an error and still print its status.
+    let v: Value = serde_json::from_slice(&out.stdout).map_err(|_| Error::Ai(format!("{bin} auth status: {}", String::from_utf8_lossy(&out.stderr).trim())))?;
+    Ok(json!({ "loggedIn": v["loggedIn"] == true, "expiresAt": v["loginExpiresAt"] }))
+}
+
 /// Send `msgs` to the provider's CLI started with `args`, and return its reply to id 1.
 /// Copilot frames each message with a `Content-Length` header; Codex writes one per line.
 async fn ask_cli(provider: &str, args: &[&str], msgs: &[Value]) -> Result<Value> {

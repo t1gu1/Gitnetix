@@ -398,6 +398,8 @@ pub struct Overview {
     pub changelog_version: Option<String>,
     /// The project's tags start with "v" (see `tags_use_v`), whatever its own choice (`branch_types.tag_v`).
     pub tags_use_v: bool,
+    /// HEAD's branch has no commit yet (a new repository): the app offers to name it and make the first commit.
+    pub unborn: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -3312,14 +3314,21 @@ impl Gitnetix {
         Route::default()
     }
 
-    pub async fn add_projects(&self, paths: Vec<String>) -> Result<Vec<Project>> {
+    /// Add local repositories as projects. `init`: a folder holding none gets a new, empty one first (the user said so
+    /// after `Error::NotRepo`); it opens with no commit, and the app offers to name its first branch.
+    pub async fn add_projects(&self, paths: Vec<String>, init: bool) -> Result<Vec<Project>> {
         let mut added = Vec::new();
         for raw in paths {
             let expanded = expand_home(&raw);
-            let top = Git::new(&expanded)
-                .toplevel()
-                .await
-                .map_err(|_| Error::Invalid(format!("{} is not a Git repository", expanded.display())))?;
+            let top = match Git::new(&expanded).toplevel().await {
+                Ok(top) => top,
+                Err(_) if init && expanded.is_dir() => {
+                    Git::new(&expanded).run(&["init", "-q"]).await?;
+                    Git::new(&expanded).toplevel().await?
+                }
+                Err(_) if expanded.is_dir() => return Err(Error::NotRepo(expanded.display().to_string())),
+                Err(_) => return Err(Error::Invalid(format!("{} is not a Git repository", expanded.display()))),
+            };
             let path = top.to_string_lossy().to_string();
             if let Some(id) = self.store.read(|c| c.projects.iter().find(|p| p.path == path).map(|p| p.id.clone())) {
                 // Re-adding a closed project brings its tab back.
@@ -3354,7 +3363,7 @@ impl Gitnetix {
         }
         // git makes the missing folders of `dest` itself; it only needs to start in one that exists.
         self.git_at(&std::env::temp_dir()).run(&["clone", "--", url, &dest.to_string_lossy()]).await?;
-        self.add_projects(vec![dest.to_string_lossy().into_owned()]).await
+        self.add_projects(vec![dest.to_string_lossy().into_owned()], false).await
     }
 
     /// Pick up existing `release/x.y.z` branches on first open.
@@ -3482,6 +3491,8 @@ impl Gitnetix {
             // Detached, or not born yet.
             None => git.current_branch().await?,
         };
+        // A branch HEAD is on that the listing lacks has no commit yet.
+        let unborn = listed.current.is_none() && current.is_some();
         let default = listed.default_branch(current.as_deref());
         let crate::git::RefList { branches, remote_branches, tags, fingerprint, .. } = listed;
         let in_progress = in_progress.ok().flatten();
@@ -3670,7 +3681,7 @@ impl Gitnetix {
             None => None,
         };
         let project = OverviewProject { id: p.id, name: p.name, path: p.path, releases: p.releases };
-        Ok((Overview { project, current_branch: current, default_branch: default, releases, branches: all, rebasing, rebase_onto, in_progress, conflicts, remote, stashes, has_changelog, changelog_version, tags_use_v }, built))
+        Ok((Overview { project, current_branch: current, default_branch: default, releases, branches: all, rebasing, rebase_onto, in_progress, conflicts, remote, stashes, has_changelog, changelog_version, tags_use_v, unborn }, built))
     }
 
     /// Every branch's view with counts, merge state and parent: a few git calls per branch,
@@ -4552,6 +4563,33 @@ impl Gitnetix {
         Ok(CommitResult { sha, message, ai_written })
     }
 
+    /// The first branch of a repository with no commit yet: HEAD goes to `name`, then its first commit, with the folder's
+    /// files when `files` (what .gitignore leaves out stays out), else empty. Git makes a branch with its first commit.
+    pub async fn first_branch(&self, project_id: &str, name: &str, files: bool) -> Result<CommitResult> {
+        let p = self.store.project(project_id)?;
+        let git = self.git(&p);
+        if git.ref_exists("HEAD").await? {
+            return Err(Error::Invalid(format!("{} already has a commit", p.name)));
+        }
+        let name = name.trim();
+        if name.starts_with('-') || !git.try_run(&["check-ref-format", "--branch", name]).await?.0 {
+            return Err(Error::Invalid(format!("\"{name}\" can't be a branch name: no spaces, and none of ~ ^ : ? * [ \\ or \"..\"")));
+        }
+        git.run(&["symbolic-ref", "HEAD", &format!("refs/heads/{name}")]).await?;
+        let message = "Initial commit";
+        if files {
+            git.add_all().await?;
+            // Allowed empty: a folder with nothing to commit yet still gets its branch.
+            git.run(&["commit", "--allow-empty", "-m", message]).await?;
+        } else {
+            // `--only` with no paths: an empty commit, even over files staged by hand.
+            git.run(&["commit", "--allow-empty", "--only", "-m", message]).await?;
+        }
+        let sha = git.rev_parse("HEAD").await?;
+        self.changed(project_id);
+        Ok(CommitResult { sha, message: message.into(), ai_written: false })
+    }
+
     /// Push a branch; `force` replaces its upstream (see [`Git::force_push_to`]), e.g. after a rebase.
     pub async fn push(&self, project_id: &str, branch: &str, force: bool) -> Result<String> {
         let p = self.store.project(project_id)?;
@@ -4642,7 +4680,9 @@ impl Gitnetix {
             }
             None => target,
         };
-        let ctl = self.start_run(p, git, branch, &base, false)?;
+        // A commit (from the commit menu) reads as its short SHA, like a paused rebase's onto.
+        let label = if base.len() == 40 && base.bytes().all(|c| c.is_ascii_hexdigit()) { &base[..7] } else { base.as_str() };
+        let ctl = self.start_run(p, git, branch, label, false)?;
         let out = match git.rebase(&git.rev_of(&base).await).await {
             Ok(true) => Ok(Resolution { done: true, left: Vec::new(), errors: Vec::new() }),
             Ok(false) => self.resolve_and_continue(p, git, Some("rebase"), branch, &base, Some(&ctl)).await,
@@ -5378,6 +5418,7 @@ impl Gitnetix {
             tagged = true;
             if origin {
                 // All or nothing: a tag on origin without its changelog commit, or the reverse, never happens.
+                // An origin without `--atomic` gets the commit first: only the tag can be missing.
                 git.push_atomic(&[&format!("{tip}:refs/heads/{branch}"), &format!("refs/tags/{tag}")]).await?;
             }
             Ok(changelog)
@@ -5669,6 +5710,10 @@ impl Gitnetix {
         }
         if git.ref_exists(&format!("refs/heads/{branch}")).await? {
             return Err(Error::Invalid(format!("{branch} already exists")));
+        }
+        // The release's branch may only be on origin yet; the new branch merges into it, so it comes down first.
+        if let Some(r) = &release {
+            git.ensure_local_branch(&r.branch).await?;
         }
         // An agent always gets its own worktree, so it keeps working while the main checkout moves on.
         let wt_path = (req.r#where == "worktree" || req.start_agent).then(|| worktree_path(&p, &branch));
@@ -10115,7 +10160,7 @@ mod tests {
             .unwrap();
         let other = k.create_profile(UserProfile { name: "Work".into(), ..Default::default() }, None, None).unwrap();
         k.switch_profile(&other.id).unwrap();
-        let added = k.add_projects(vec![path]).await.unwrap();
+        let added = k.add_projects(vec![path], false).await.unwrap();
         assert_eq!(added[0].agent, pick);
     }
 

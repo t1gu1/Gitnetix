@@ -415,6 +415,8 @@ export interface Overview {
   changelogVersion?: string | null;
   /** Most of the project's version tags start with "v" (true when it has none). */
   tagsUseV: boolean;
+  /** HEAD's branch has no commit yet (a new repository): the map offers to name it and make the first commit. */
+  unborn: boolean;
 }
 
 export interface Stash {

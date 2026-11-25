@@ -969,6 +969,7 @@ export function BranchMap({
     currentView: o.currentBranch ? byName.get(o.currentBranch) : undefined,
     list: menuOn?.list ?? [],
     shipped: menuOn?.shipped,
+    onRebase: (sha) => o.currentBranch && actions.askRebase(o.currentBranch, sha),
   });
   const toggle = (key: string, on: boolean) => setToggles((m) => new Map(m).set(key, on));
   const defaultView = byName.get(o.defaultBranch);
