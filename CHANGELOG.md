@@ -14,6 +14,12 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (App)
+- Set up the first branch for a folder with no commit yet, and name it during setup.
+- Add an `init` option to `projects.add`.
+- Add `stop_task` to stop one background task.
+- Show a sign-in card when sign-in is required.
+
 ## [0.36.4] - 2026-11-24
 
 ### Added (App)
