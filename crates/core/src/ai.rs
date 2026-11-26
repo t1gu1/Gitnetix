@@ -321,9 +321,20 @@ async fn ask_cli(provider: &str, args: &[&str], msgs: &[Value]) -> Result<Value>
             }
         }
     };
-    tokio::time::timeout(Duration::from_secs(20), ask)
+    let reply = tokio::time::timeout(Duration::from_secs(20), ask)
         .await
-        .map_err(|_| Error::Ai(format!("{bin} took over 20 s to list its models")))?
+        .map_err(|_| Error::Ai(format!("{bin} took over 20 s to list its models")))?;
+    // Killed while it renews an expired sign-in, Claude Code loses the new tokens and asks to sign in again:
+    // close its input and let it exit on its own, killing it only if it hangs.
+    drop(stdin);
+    tokio::spawn(async move {
+        let _ = tokio::time::timeout(Duration::from_secs(30), async {
+            let _ = tokio::io::copy(&mut out, &mut tokio::io::sink()).await;
+            child.wait().await
+        })
+        .await;
+    });
+    reply
 }
 
 /// One JSON-RPC message: after `Content-Length` headers when `framed`, else one line.
