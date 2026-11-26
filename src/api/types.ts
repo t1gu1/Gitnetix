@@ -1241,4 +1241,6 @@ export type GitnetixEvent =
   | { type: "overviewProgress"; projectId: string; done: number; total: number }
   | { type: "filesProgress"; projectId: string; done: number; total: number }
   | { type: "aiSignedOut"; provider: string }
-  | { type: "githubSignedOut" };
+  | { type: "githubSignedOut" }
+  | { type: "remoteChanged"; projectId: string; event: string }
+  | { type: "liveChanged" };

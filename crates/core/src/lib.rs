@@ -2,11 +2,13 @@
 //!
 //! Front ends (Tauri desktop, companion HTTP API, MCP) call [`rpc::call`].
 
+pub mod account;
 pub mod agents;
 pub mod ai;
 pub mod analytics;
 pub mod app;
 pub mod auto_resolve;
+pub mod backup;
 pub mod cache;
 pub mod dictation;
 pub mod error;
@@ -14,6 +16,7 @@ pub mod events;
 pub mod git;
 pub mod hooks;
 pub mod limits;
+pub mod live;
 pub mod log;
 pub mod net;
 pub mod project_commands;
@@ -27,6 +30,7 @@ pub mod store;
 pub mod submodules;
 pub mod templates;
 pub mod tickets;
+pub mod vault;
 pub mod watch;
 
 pub use app::Gitnetix;

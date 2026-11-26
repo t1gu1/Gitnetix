@@ -14,6 +14,14 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (App)
+- A Gitnetix account, in Settings: sign in with GitHub and your project list and settings follow you to every computer. They are encrypted on your devices, so the Gitnetix server can't read them. A new computer opens them once a computer already signed in approves it, after both show the same code, or with the recovery key you keep. Enterprises share a project list with your team, with owner, admin, member and viewer roles: an admin gives each member the team's key after checking their code, and makes a new key when someone leaves. It needs the Pro or Team plan, and a first subscription starts with 7 free days.
+- Live updates, in Settings, Gitnetix account: turn them on and pull requests, checks and pushes show as they happen instead of at the next check. Gitnetix adds a webhook to each GitHub repository you administer, and this computer receives them through the Gitnetix relay; the server only passes on which repository changed, and Gitnetix reads the change with its own GitHub sign-in. Turning it off removes the webhooks. Repositories you don't administer keep being checked as before.
+- Backups, in Settings, Gitnetix account: a save point of your Gitnetix data on your account, encrypted with your account key. It holds every profile's settings, projects, templates and AI setup, and your agent sessions, never your tokens. Back up now, or let Gitnetix do it once a day when something changed; the newest 100 are kept. Restore one here or on a new computer: the files it replaces are kept in a before-restore folder.
+- Logs: your account's security log (sign-ins, approved installs, devices, plan changes) and, for an enterprise's admins, its log (members, roles, keys, policies, projects), newest first, kept a year.
+- Enterprise policies, all off until an admin turns them on: protected branches (no direct push to the default branch or a release branch), signed commits, the branch types new branches may use, and which agents may run on the enterprise's projects, with Bypass allowed or not. Each member's Gitnetix follows them on the projects of the enterprise's list and says which policy refused an action.
+- Gitnetix now has a source-available license in LICENSE and a use and liability policy in POLICY.md. You can use the app for free, read the code and send contributions, but you can't redistribute it, sell it or release a copy of it. You use it at your own risk.
+
 ## [0.36.10] - 2026-11-28
 
 ### Added (App)

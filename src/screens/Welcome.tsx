@@ -242,8 +242,8 @@ const SHOWN_REPOS = 50;
 
 /** Clone a repository into a new folder named after it, then open it like an added one.
  * With GitHub, GitLab, Bitbucket or Gitea linked, its repositories are listed to pick from. */
-function CloneModal({ base, onClose, onDone }: { base: string; onClose: () => void; onDone: (r: Project[]) => void }) {
-  const [url, setUrl] = useState("");
+export function CloneModal({ base, url: start = "", onClose, onDone }: { base: string; url?: string; onClose: () => void; onDone: (r: Project[]) => void }) {
+  const [url, setUrl] = useState(start);
   const [parent, setParent] = useState(base);
   const i = useConfig().data?.integrations;
   const hosts = i ? ([["github", "GitHub", i.githubConnected], ["gitlab", "GitLab", i.gitlab.connected], ["bitbucket", "Bitbucket", i.bitbucket.connected], ["gitea", "Gitea", i.gitea.connected]] as const).filter((h) => h[2]) : [];

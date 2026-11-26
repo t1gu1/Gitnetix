@@ -14,7 +14,8 @@ use crate::templates::{self, Template};
 use crate::providers::github_auth::{self, Poll};
 use crate::providers::{azure_auth, bitbucket::{self, Bitbucket}, gitea::Gitea, github::LineAnchor, gitlab::{self, GitLab}, oauth, RepoRef};
 use crate::tickets::{jira_auth, oauth as ticket_oauth};
-use crate::{ai, secrets};
+use crate::{account, ai, secrets};
+use reqwest::Method;
 
 /// (method, description, params) — also the MCP tool list.
 pub const METHODS: &[(&str, &str, &str)] = &[
@@ -443,7 +444,7 @@ fn avatars_are_an_emoji_a_photo_or_a_gravatar_email() {
 }
 
 /// Reads polled all the time: logged only when they fail.
-const QUIET: &[&str] = &[".info", ".linkedLines", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".counts", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "analytics.day", "analytics.sprints", "analytics.weekly", "shell.write", "shell.resize", "shell.scripts", "ui.setView", "github.signInPoll", "azure.signInPoll", "gitlab.signInPoll", "github.repos", "gitlab.repos", "bitbucket.repos", "gitea.repos"];
+const QUIET: &[&str] = &[".info", ".linkedLines", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".counts", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "analytics.day", "analytics.sprints", "analytics.weekly", "shell.write", "shell.resize", "shell.scripts", "ui.setView", "github.signInPoll", "azure.signInPoll", "account.status", "account.signInPoll", "account.sync", "account.enterprise", "account.invitations", "account.live", "account.audit", "account.enterpriseAudit", "account.backups", "gitlab.signInPoll", "github.repos", "gitlab.repos", "bitbucket.repos", "gitea.repos"];
 
 /// Actions in flight.
 static BUSY: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
@@ -525,6 +526,11 @@ fn scrub(v: &Value, key: &str) -> Value {
         Value::String(s) if s.chars().count() > 120 => json!(format!("{}…", s.chars().take(120).collect::<String>())),
         _ => v.clone(),
     }
+}
+
+/// `?before=<the last entry's time>` for an audit log's next page; a malformed time never reaches the server.
+fn before(p: &Value) -> String {
+    p["before"].as_str().filter(|t| chrono::DateTime::parse_from_rfc3339(t).is_ok()).map(|t| format!("?before={}", t.replace('+', "%2B"))).unwrap_or_default()
 }
 
 async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
@@ -1624,6 +1630,92 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             crate::git::save_login(&s(&p, "host")?, login)?;
             ok()
         }
+        // Not in METHODS: an MCP agent must not sign in to the Gitnetix account, approve installs or change enterprises.
+        "account.status" => account::status().await,
+        "account.signInStart" => to(account::sign_in_start().await?),
+        "account.signInPoll" => match account::sign_in_poll(&s(&p, "deviceCode")?).await? {
+            Poll::Token(_) => to(json!({ "status": "done", "user": account::api(Method::GET, "/v1/me", None).await?["login"] })),
+            Poll::SlowDown(interval) => to(json!({ "status": "pending", "interval": interval })),
+            Poll::Pending => to(json!({ "status": "pending" })),
+        },
+        "account.signOut" => {
+            account::sign_out().await?;
+            ok()
+        }
+        "account.setup" => to(json!({ "recoveryKey": account::setup().await? })),
+        "account.reset" => to(json!({ "recoveryKey": account::reset().await? })),
+        "account.approve" => {
+            account::approve(&s(&p, "sessionId")?, &s(&p, "publicKey")?).await?;
+            ok()
+        }
+        "account.recover" => {
+            account::recover(&s(&p, "recoveryKey")?).await?;
+            ok()
+        }
+        "account.trustNewKey" => {
+            account::forget_key();
+            ok()
+        }
+        "account.sync" => account::sync(k).await,
+        "account.forgetProject" => account::api(Method::DELETE, &format!("/v1/me/projects/{}", account::hex_id(&s(&p, "id")?)?), None).await,
+        "account.checkout" => account::api(Method::POST, "/v1/billing/checkout", Some(p.clone())).await,
+        "account.portal" => account::api(Method::POST, "/v1/billing/portal", Some(p.clone())).await,
+        "account.invitations" => account::api(Method::GET, "/v1/invitations", None).await,
+        "account.acceptInvite" => account::api(Method::POST, &format!("/v1/invitations/{}/accept", account::hex_id(&s(&p, "id")?)?), None).await,
+        "account.declineInvite" => account::api(Method::POST, &format!("/v1/invitations/{}/decline", account::hex_id(&s(&p, "id")?)?), None).await,
+        "account.enterprise" => account::enterprise(k, &s(&p, "id")?).await,
+        "account.createEnterprise" => account::create_enterprise(&s(&p, "name")?).await,
+        "account.invite" => {
+            let e = s(&p, "enterpriseId")?;
+            let mut body = p.clone();
+            body.as_object_mut().map(|m| m.remove("enterpriseId"));
+            account::api(Method::POST, &format!("/v1/enterprises/{}/invitations", account::hex_id(&e)?), Some(body)).await
+        }
+        "account.revokeInvite" => {
+            let (e, i) = (s(&p, "enterpriseId")?, s(&p, "id")?);
+            account::api(Method::DELETE, &format!("/v1/enterprises/{}/invitations/{}", account::hex_id(&e)?, account::hex_id(&i)?), None).await
+        }
+        "account.setRole" => {
+            let (e, u) = (s(&p, "enterpriseId")?, s(&p, "userId")?);
+            account::api(Method::PATCH, &format!("/v1/enterprises/{}/members/{}", account::hex_id(&e)?, account::hex_id(&u)?), Some(json!({ "role": s(&p, "role")? }))).await
+        }
+        "account.removeMember" => {
+            let (e, u) = (s(&p, "enterpriseId")?, s(&p, "userId")?);
+            account::api(Method::DELETE, &format!("/v1/enterprises/{}/members/{}", account::hex_id(&e)?, account::hex_id(&u)?), None).await
+        }
+        "account.shareKey" => {
+            account::share_key(&s(&p, "enterpriseId")?, &s(&p, "userId")?, &s(&p, "publicKey")?).await?;
+            ok()
+        }
+        "account.rotateKey" => {
+            account::rotate_key(&s(&p, "enterpriseId")?).await?;
+            ok()
+        }
+        "account.addTeamProject" => account::add_team_project(k, &s(&p, "enterpriseId")?, &s(&p, "projectId")?).await,
+        "account.live" => Ok(crate::live::status(k)),
+        "account.backups" => crate::backup::list(k).await,
+        "account.backupNow" => crate::backup::now(k).await,
+        "account.restore" => crate::backup::restore(k, &s(&p, "id")?).await,
+        "account.deleteBackup" => account::api(Method::DELETE, &format!("/v1/backups/{}", account::hex_id(&s(&p, "id")?)?), None).await,
+        "account.setDailyBackup" => {
+            k.store.write(|c| {
+                c.account.backups_off = !b(&p, "on");
+                Ok(())
+            })?;
+            ok()
+        }
+        "account.setLive" => crate::live::set(k, b(&p, "on")).await,
+        "account.audit" => account::api(Method::GET, &format!("/v1/me/audit{}", before(&p)), None).await,
+        "account.enterpriseAudit" => account::api(Method::GET, &format!("/v1/enterprises/{}/audit{}", account::hex_id(&s(&p, "enterpriseId")?)?, before(&p)), None).await,
+        "account.setPolicies" => {
+            account::set_policies(&s(&p, "enterpriseId")?, &p["policies"]).await?;
+            ok()
+        }
+        "account.removeTeamProject" => {
+            let (e, i) = (s(&p, "enterpriseId")?, s(&p, "id")?);
+            account::api(Method::DELETE, &format!("/v1/enterprises/{}/projects/{}", account::hex_id(&e)?, account::hex_id(&i)?), None).await
+        }
+        "account.deleteEnterprise" => account::api(Method::DELETE, &format!("/v1/enterprises/{}", account::hex_id(&s(&p, "enterpriseId")?)?), None).await,
         "github.signInStart" => to(github_auth::start().await?),
         "github.signInPoll" => match github_auth::poll(&s(&p, "deviceCode")?).await? {
             Poll::Pending => to(json!({ "status": "pending" })),

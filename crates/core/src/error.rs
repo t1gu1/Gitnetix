@@ -29,6 +29,12 @@ pub enum Error {
     /// Uncommitted changes a checkout would overwrite: git refused to switch.
     #[error("{0}")]
     WouldOverwrite(String),
+    /// The Gitnetix server wants a plan (Pro or Team) for this: the app offers to subscribe.
+    #[error("{0}")]
+    Upgrade(String),
+    /// The Gitnetix server refused a write made on top of something that changed since (`code`: version_conflict, stale_key...).
+    #[error("{message}")]
+    Conflict { code: String, message: String },
     #[error("{0}")]
     Other(String),
 }
@@ -61,6 +67,8 @@ impl Error {
             Error::NoPushAccess { .. } => "no_push_access",
             Error::NotRepo(_) => "not_repo",
             Error::WouldOverwrite(_) => "would_overwrite",
+            Error::Upgrade(_) => "upgrade",
+            Error::Conflict { .. } => "conflict",
             Error::Other(_) => "other",
         }
     }

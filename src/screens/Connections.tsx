@@ -19,7 +19,7 @@ type DeviceCode = { deviceCode: string; userCode: string; verificationUri: strin
 
 /** "Sign in with GitHub / Azure DevOps / GitLab": show a code, open the provider's page to enter it, poll until it hands over a token.
  * `params`: a self-managed GitLab's server and OAuth app. `small`: a row's short Sign in, whose code then shows on a line of its own under the row. */
-export function DeviceSignIn({ method, name, site, params, onDone, small }: { method: "github" | "azure" | "gitlab"; name: string; site: string; params?: Record<string, string>; onDone?: () => void; small?: boolean }) {
+export function DeviceSignIn({ method, name, site, params, onDone, small }: { method: "github" | "azure" | "gitlab" | "account"; name: string; site: string; params?: Record<string, string>; onDone?: () => void; small?: boolean }) {
   const qc = useQueryClient();
   const [code, setCode] = useState<DeviceCode | null>(null);
   const start = useAction<DeviceCode>(`${method}.signInStart`);

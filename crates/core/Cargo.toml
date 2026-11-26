@@ -35,6 +35,15 @@ symphonia = { version = "0.6", default-features = false, features = ["mkv", "ogg
 sha2 = "0.10"
 # GitLab names a diff line by the SHA-1 of its file's path, which a comment on several lines must give.
 sha1 = "0.10"
+# The Gitnetix account's end-to-end encryption (vault.rs): sealed boxes for keys, XChaCha20-Poly1305 for items.
+crypto_box = { version = "0.9", features = ["seal"] }
+chacha20poly1305 = "0.10"
+hkdf = "0.12"
+hmac = "0.12"
+# Backups (backup.rs) go out compressed; already in the build through other crates.
+flate2 = "1"
+# Live updates (live.rs): this computer's socket on the Gitnetix relay, over the rustls reqwest already uses.
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
 
 # Speech to text on the GPU through Metal on Apple Silicon; Intel Macs stay on the CPU, as ggml's Metal backend targets Apple GPUs.
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]

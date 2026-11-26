@@ -2866,10 +2866,36 @@ impl Gitnetix {
         if self.store.read(|c| c.integrations.github_connected && c.integrations.github_api.is_none()) {
             g = g.with_github();
         }
-        match self.identity() {
+        let mut g = match self.identity() {
             Some(id) => g.with_identity(&id),
             None => g,
+        };
+        if let Some(rules) = self.policies_at(cwd) {
+            if rules.protected_branches {
+                g = g.protected_by(&rules.by);
+            }
+            if rules.signed_commits {
+                g = g.signing();
+            }
         }
+        g
+    }
+
+    /// The enterprise policies on a project, from the account's last sync; none when it is on no enterprise's list.
+    fn policies(&self, project_id: &str) -> Option<crate::account::Policies> {
+        self.store.read(|c| c.account.policies.get(project_id).cloned())
+    }
+
+    /// The policies on the project checked out at `cwd`: its main checkout, or one of its worktrees.
+    fn policies_at(&self, cwd: &Path) -> Option<crate::account::Policies> {
+        self.store.read(|c| {
+            if c.account.policies.is_empty() {
+                return None;
+            }
+            let main = crate::account::main_checkout(cwd);
+            let p = c.projects.iter().find(|p| Path::new(&p.path) == main)?;
+            c.account.policies.get(&p.id).cloned()
+        })
     }
 
     fn git(&self, p: &Project) -> Git {
@@ -5695,6 +5721,9 @@ impl Gitnetix {
 
     pub async fn create_item(&self, project_id: &str, req: NewItem) -> Result<NewItemResult> {
         let p = self.store.project(project_id)?;
+        if let Some(rules) = self.policies(&p.id) {
+            crate::account::check_branch_type(&rules, &req.kind)?;
+        }
         let git = self.git(&p);
         let release = match req.release.trim() {
             "" => None,
@@ -7253,6 +7282,9 @@ impl Gitnetix {
         let p = self.store.project(project_id)?;
         let t = self.template("agent", None, Some(&p.id))?;
         let r = self.agent_ai(&t, pick)?;
+        if let Some(rules) = self.policies(project_id) {
+            crate::account::check_agent(&rules, &r.provider, &r.permission)?;
+        }
         // Its model list, so the CLI gets only an effort the model takes.
         ai::warm(&r.provider).await;
         let branch = match branch {
@@ -7418,6 +7450,9 @@ impl Gitnetix {
         let t = self.template("agent", None, Some(&s.project_id))?;
         let provider = pick.provider.clone().filter(|p| !p.is_empty()).or(s.ai.map(|r| r.provider));
         let r = self.agent_ai(&t, Route { provider, ..pick })?;
+        if let Some(rules) = self.policies(&s.project_id) {
+            crate::account::check_agent(&rules, &r.provider, &r.permission)?;
+        }
         self.agents.set_ai(id, r)
     }
 
@@ -8181,6 +8216,9 @@ impl Gitnetix {
         }
         let t = self.template("ticket", template.filter(|t| !t.is_empty()), Some(&p.id))?;
         let r = self.agent_ai(&t, Route::default())?;
+        if let Some(rules) = self.policies(project_id) {
+            crate::account::check_agent(&rules, &r.provider, &r.permission)?;
+        }
         ai::warm(&r.provider).await;
         let mut ids = vec![project_id.to_string()];
         for id in projects {

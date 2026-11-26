@@ -108,6 +108,8 @@ pub struct Git {
     env: Vec<(&'static str, &'static str)>,
     /// The app's GitHub token may sign in to github.com, see [`Git::with_github`].
     github: bool,
+    /// The enterprise whose policy keeps the default branch and release branches for pull requests, see [`Git::protected_by`].
+    protected: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -429,7 +431,36 @@ fn parse_refs(out: &str) -> RefList {
 
 impl Git {
     pub fn new(cwd: impl Into<PathBuf>) -> Self {
-        Git { cwd: cwd.into(), config: Vec::new(), index: None, env: Vec::new(), github: false }
+        Git { cwd: cwd.into(), config: Vec::new(), index: None, env: Vec::new(), github: false, protected: None }
+    }
+
+    /// `by`'s policy: changes reach origin's default branch and release branches through pull requests, so pushing to
+    /// them is refused.
+    pub fn protected_by(mut self, by: &str) -> Self {
+        self.protected = Some(by.into());
+        self
+    }
+
+    /// An enterprise's policy: every commit is signed, and git refuses one it can't sign.
+    pub fn signing(mut self) -> Self {
+        self.config.push(("commit.gpgsign".into(), "true".into()));
+        self
+    }
+
+    /// The branch on origin a push (`args`) would update that a protecting policy keeps for pull requests: the default
+    /// branch (origin/HEAD, or a usual name) or a release branch. Tags and other remotes (a fork) pass.
+    async fn protected_target(&self, args: &[&str]) -> Option<String> {
+        let mut plain = args.iter().skip(1).filter(|a| !a.starts_with('-'));
+        if plain.next() != Some(&"origin") {
+            return None;
+        }
+        let head = match self.try_run(&["symbolic-ref", "--short", "-q", "refs/remotes/origin/HEAD"]).await {
+            Ok((true, out, _)) => out.trim().strip_prefix("origin/").map(String::from),
+            _ => None,
+        };
+        plain.map(|spec| spec.rsplit_once(':').map_or(*spec, |(_, to)| to)).map(|to| to.strip_prefix("refs/heads/").unwrap_or(to).to_string()).find(|to| {
+            to.starts_with("release/") || DEFAULT_NAMES.contains(&to.as_str()) || head.as_deref() == Some(to.as_str())
+        })
     }
 
     /// Lets git sign in to github.com with the app's GitHub token (the user connected github.com, not an Enterprise host).
@@ -1915,6 +1946,11 @@ impl Git {
     }
 
     async fn push_with(&self, args: &[&str]) -> Result<String> {
+        if let Some(by) = &self.protected {
+            if let Some(to) = self.protected_target(args).await {
+                return Err(Error::Invalid(format!("{by}'s policy: changes reach {to} through a pull request, not a direct push")));
+            }
+        }
         let (ok, out, err) = self.try_run(args).await?;
         if !ok {
             return Err(Error::Git { cmd: "push".into(), stderr: err.trim().into() });
@@ -2743,6 +2779,42 @@ mod tests {
         assert_eq!(parse_describe("v1.0.0-rc-1-0-gabc1234"), Some(("v1.0.0-rc-1".into(), 0)));
         assert_eq!(parse_describe("v1.0.0"), None);
         assert_eq!(parse_describe("-3-gabc"), None);
+    }
+
+    #[tokio::test]
+    async fn a_protecting_policy_refuses_pushes_to_origins_default_and_release_branches_only() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (origin, fork, work) = (tmp.path().join("origin.git"), tmp.path().join("fork.git"), tmp.path().join("work"));
+        let sh = |dir: &Path, args: &[&str]| {
+            let ok = std::process::Command::new("git")
+                .current_dir(dir)
+                .args(["-c", "user.name=T", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false"])
+                .args(args)
+                .status()
+                .unwrap()
+                .success();
+            assert!(ok, "git {args:?}");
+        };
+        for bare in [&origin, &fork] {
+            sh(tmp.path(), &["init", "-q", "--bare", bare.to_str().unwrap()]);
+        }
+        std::fs::create_dir(&work).unwrap();
+        sh(&work, &["init", "-q", "-b", "main"]);
+        sh(&work, &["commit", "-q", "--allow-empty", "-m", "a"]);
+        sh(&work, &["remote", "add", "origin", origin.to_str().unwrap()]);
+        sh(&work, &["remote", "add", "fork", fork.to_str().unwrap()]);
+        sh(&work, &["branch", "release/1.0"]);
+        sh(&work, &["branch", "feat/x"]);
+        let git = Git::new(&work).protected_by("Acme");
+        for refused in ["main", "release/1.0"] {
+            let e = git.push(refused, true).await.unwrap_err().to_string();
+            assert!(e.contains("Acme's policy") && e.contains(refused), "{e}");
+        }
+        assert!(git.push_atomic(&["main:refs/heads/main"]).await.is_err());
+        git.push("feat/x", true).await.unwrap();
+        // A fork isn't origin: the policy is about the shared repository.
+        git.push_to("fork", "main", false).await.unwrap();
+        Git::new(&work).push("main", true).await.unwrap();
     }
 
     #[tokio::test]

@@ -311,6 +311,17 @@ impl GitHub {
         Ok(serde_json::from_value(v)?)
     }
 
+    /// A webhook on the repository, posting `events` to `url`. Needs admin rights on it; returns GitHub's id for it.
+    pub async fn create_hook(&self, url: &str, events: &[&str]) -> Result<u64> {
+        let body = json!({ "name": "web", "active": true, "events": events, "config": { "url": url, "content_type": "json", "insecure_ssl": "0" } });
+        let v = self.req(reqwest::Method::POST, &format!("{}/hooks", self.rp()), Some(body)).await?;
+        v["id"].as_u64().ok_or_else(|| Error::Http("GitHub made no webhook".into()))
+    }
+
+    pub async fn delete_hook(&self, id: u64) -> Result<()> {
+        self.req(reqwest::Method::DELETE, &format!("{}/hooks/{id}", self.rp()), None).await.map(|_| ())
+    }
+
     fn graphql_url(&self) -> String {
         if self.api.ends_with("/api/v3") {
             self.api.trim_end_matches("/v3").to_string() + "/graphql"

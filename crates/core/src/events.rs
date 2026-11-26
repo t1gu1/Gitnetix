@@ -60,4 +60,9 @@ pub enum Event {
     AiSignedOut { provider: String },
     /// api.github.com turned down the saved token, renewed or not: the UI offers to sign in to GitHub again.
     GithubSignedOut,
+    /// A GitHub webhook of the project fired (live.rs): its pull requests and checks are worth reading again; `push`, its branches.
+    #[serde(rename_all = "camelCase")]
+    RemoteChanged { project_id: String, event: String },
+    /// This computer joined or left the relay that brings the webhooks.
+    LiveChanged {},
 }

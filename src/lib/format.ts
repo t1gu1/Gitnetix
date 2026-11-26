@@ -1,5 +1,6 @@
 export const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? "" : "s"}`;
-export const bytes = (n: number) => (n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : `${(n / 1024 / 1024).toFixed(2)} MB`);
+export const bytes = (n: number) =>
+  n < 1024 ? `${n} B` : n < 1024 * 1024 ? `${(n / 1024).toFixed(1)} KB` : n < 1024 ** 3 ? `${(n / 1024 / 1024).toFixed(2)} MB` : `${+(n / 1024 ** 3).toFixed(2)} GB`;
 export const stashCount = (n: number) => `${n} stash${n === 1 ? "" : "es"}`;
 /** How long since `iso`, after a status: "for 20 min", "for 5 h", "for 3 days", then "since Nov 2". */
 export function lasted(iso: string) {

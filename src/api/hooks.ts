@@ -172,6 +172,15 @@ export function useEngineEvents() {
             // Read by GitHubSignInPrompt. Each failed refresh sends it again: false (put off) stays false for the run.
             qc.setQueryData<boolean | null>(["githubSignedOut"], (v) => v !== false);
             break;
+          case "remoteChanged":
+            // A GitHub webhook fired (live updates): its pull requests and checks again, and on a push, origin's branches.
+            qc.invalidateQueries({ queryKey: ["prs", e.projectId] });
+            qc.invalidateQueries({ queryKey: ["pr", e.projectId] });
+            if (e.event === "push") rpc("branches.autoFetch", { projectId: e.projectId, back: true }).catch(() => {});
+            break;
+          case "liveChanged":
+            qc.invalidateQueries({ queryKey: ["live"] });
+            break;
           case "missed":
             // The engine's events outran this window: anything shown may be stale.
             qc.invalidateQueries();

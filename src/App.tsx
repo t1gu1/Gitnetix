@@ -33,6 +33,7 @@ import { Tickets } from "./screens/Tickets";
 import { Welcome } from "./screens/Welcome";
 import { Workspace } from "./screens/Workspace";
 import { StartSession, Worktrees } from "./screens/Worktrees";
+import { useAccountSync } from "./screens/Account";
 
 export function App() {
   const [paired, setPaired] = useState(isLocal || !!currentRemote());
@@ -46,6 +47,7 @@ function Engine({ onUnpair }: { onUnpair: () => void }) {
   useApplyAnimations(cfg.data?.ui.animationsOff);
   usePauseWhenIdle();
   useZoomKeys();
+  useAccountSync();
   if (cfg.isLoading) return <Loading />;
   // Reload, not refetch: the event stream above is still open to the address that failed.
   if (cfg.error && !isLocal) return <Pair onPaired={() => location.reload()} error={cfg.error.message} />;

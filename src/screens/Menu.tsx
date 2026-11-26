@@ -16,6 +16,7 @@ import { animates, useAnimations } from "../lib/motion";
 import { useNav } from "../lib/nav";
 import { THEMES } from "../lib/themes";
 import { toast } from "../lib/toast";
+import { AccountPage, AuditPage, EnterprisePage, useAccount } from "./Account";
 import { AISetupPanes } from "./AISetup";
 import { HooksPage } from "./Hooks";
 import { LogsPane } from "./Logs";
@@ -25,7 +26,7 @@ import { TemplatesPanes } from "./Templates";
 import { ProjectFilesPage, WorktreesSection } from "./WorktreePaths";
 
 /** Titles of the pages opened in place inside the panel, by id: the GROUPS sections, the project's pages and the logs. */
-const TITLES: Record<string, string> = Object.fromEntries([...GROUPS.flatMap(([, items]) => items.map(([id, label]) => [id, label])), ["logs", "Logs"], ["branchTypes", "Branch types"], ["projectFiles", "Worktree files"], ["hooks", "Hooks"]]);
+const TITLES: Record<string, string> = Object.fromEntries([...GROUPS.flatMap(([, items]) => items.map(([id, label]) => [id, label])), ["logs", "Logs"], ["branchTypes", "Branch types"], ["projectFiles", "Worktree files"], ["hooks", "Hooks"], ["account", "Gitnetix account"], ["accountLog", "Security log"]]);
 
 export function Menu({ onUnpair }: { onUnpair: () => void }) {
   const nav = useNav();
@@ -163,6 +164,10 @@ export function Menu({ onUnpair }: { onUnpair: () => void }) {
 function SettingsPage({ id, cfg, project, open, back }: { id: string; cfg?: Config; project?: Project; open: (id: string, title?: string) => void; back: () => void }) {
   const [page, sub] = id.split(/:(.*)/);
   if (page === "ai") return <AISetupPanes sub={sub} open={open} />;
+  if (page === "account") return <AccountPage open={open} />;
+  if (page === "enterprise") return <EnterprisePage key={sub} id={sub} project={project} back={back} open={open} />;
+  if (page === "accountLog") return <AuditPage />;
+  if (page === "enterpriseLog") return <AuditPage key={sub} enterpriseId={sub} />;
   if (page === "templates") return <TemplatesPanes sub={sub} open={open} back={back} />;
   if (page === "logs") return <LogsPane />;
   if (page === "appearance") return <Appearance />;
@@ -400,6 +405,7 @@ function AppSettings({ cfg, open }: { cfg?: Config; open: (id: string) => void }
   const git = i ? [i.githubConnected && "GitHub", i.azureConnected && "Azure DevOps", i.gitlab.connected && "GitLab", i.bitbucket.connected && "Bitbucket", i.gitea.connected && "Gitea"].filter(Boolean).join(", ") : "";
   const trackers = i ? [i.jira.length && "Jira", i.trello.length && "Trello", i.asana.length && "Asana", i.linear.length && "Linear"].filter(Boolean).join(", ") : "";
   const companion = !isLocal ? "Set on the computer" : s ? (s.enabled ? (s.lan ? "On, your network" : "On, this computer") : "Off") : "";
+  const account = useAccount().data;
   return (
     <div className="sheet-stack">
       <SheetBox title="App" sub="every project">
@@ -417,6 +423,7 @@ function AppSettings({ cfg, open }: { cfg?: Config; open: (id: string) => void }
       </SheetBox>
       <SheetBox title="AI & connections">
         <div className="sheet-col">
+          <SheetLink label="Gitnetix account" tip="Sync, encrypted backups, your phone from anywhere, and teams" value={account?.signedIn ? `@${account.user?.login}` : "Not signed in"} none={!account?.signedIn} onClick={() => open("account")} />
           <SheetLink label="AI setup" tip="Providers, models and task routing" restates value="Providers & models" onClick={() => open("ai")} />
           <SheetLink label="Templates" tip="Prompts for commits, PRs and release notes" value="Prompts" onClick={() => open("templates")} />
           <SheetLink label="Git providers" value={git || "None"} none={!git} onClick={() => open("git")} />

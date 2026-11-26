@@ -40,6 +40,8 @@ pub struct Config {
     pub worktree_defaults_added: Vec<String>,
     /// Paths linked from the main checkout into each new worktree of every project, with the project's own.
     pub worktree_links: Vec<String>,
+    /// What this install last synced with the Gitnetix account ([`crate::account::sync`]).
+    pub account: crate::account::SyncState,
 }
 
 impl Default for Config {
@@ -56,6 +58,7 @@ impl Default for Config {
             worktree_files: DEFAULT_WORKTREE_FILES.iter().map(|f| f.to_string()).collect(),
             worktree_defaults_added: DEFAULT_WORKTREE_FILES.iter().map(|f| f.to_string()).collect(),
             worktree_links: Vec::new(),
+            account: Default::default(),
         }
     }
 }

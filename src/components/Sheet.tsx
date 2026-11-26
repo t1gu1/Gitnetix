@@ -55,10 +55,10 @@ export function SheetLabel({ children, tip }: { children: ReactNode; tip?: strin
   );
 }
 
-/** On or off, flipped in place: the whole row is the switch's label. */
-export function SheetSwitch({ label, tip, restates, on, flip, disabled }: { label: string; tip?: string; restates?: boolean; on: boolean; flip: () => void; disabled?: boolean }) {
+/** On or off, flipped in place: the whole row is the switch's label. `sub`: one of the choices of the row above. */
+export function SheetSwitch({ label, tip, restates, on, flip, disabled, sub }: { label: string; tip?: string; restates?: boolean; on: boolean; flip: () => void; disabled?: boolean; sub?: boolean }) {
   return (
-    <label className="sheet-row" data-tip={tip}>
+    <label className={`sheet-row${sub ? " sub" : ""}`} data-tip={tip}>
       <SheetKey label={label} tip={tip} restates={restates} />
       <input type="checkbox" role="switch" className="switch" aria-label={tip ?? label} checked={on} disabled={disabled} onChange={flip} />
     </label>
