@@ -158,6 +158,30 @@ async fn stop(k: &Gitnetix, host: &str) -> Result<()> {
     Ok(())
 }
 
+/// At sign-out, while the session still opens the server: every profile's webhooks gone from GitHub, this computer
+/// gone from the account (the server drops its webhooks and phones with it), and the relay task stopped.
+pub async fn forget(k: &Gitnetix) {
+    if let Some((host, _)) = stored_host() {
+        let active = k.store.active();
+        let mut hooks: Vec<Hook> = k.store.read(|c| c.account.hooks.values().cloned().collect());
+        for p in k.store.profiles().list.iter().filter(|p| p.id != active) {
+            if let Ok(c) = k.store.profile_config(&p.id) {
+                hooks.extend(c.account.hooks.into_values());
+            }
+        }
+        for h in &hooks {
+            remove(k, &host, h).await;
+        }
+        let _ = account::api(Method::DELETE, &format!("/v1/devices/{host}"), None).await;
+        let _ = secrets::delete(DEVICE);
+    }
+    // shortcut: an open relay socket lasts until the server's sweep drops the deleted device (30 s at most), so a sign-in
+    // within that time waits for it; end the session here if that wait ever shows.
+    let mut l = LIVE.lock().unwrap();
+    l.on = false;
+    l.hooks.clear();
+}
+
 /// With each account sync: the relay socket up, and the webhooks in step with the project list. A computer removed from
 /// the account elsewhere stops here instead of making itself a new device.
 pub async fn ensure(k: &Gitnetix) -> Result<()> {

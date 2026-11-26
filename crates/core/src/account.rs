@@ -306,12 +306,19 @@ fn forget_session() {
     *UNLOCKED.lock().unwrap() = None;
 }
 
-pub async fn sign_out() -> Result<()> {
+/// Live updates off and this computer off the account first, while the session still opens the server. Then the
+/// session, and every profile's account state: the next account starts from nothing, under no policy of this one.
+pub async fn sign_out(k: &Gitnetix) -> Result<()> {
+    crate::live::forget(k).await;
     if let Ok(token) = access(None).await {
         let _ = crate::net::client().post(format!("{}/v1/auth/logout", server())).bearer_auth(token).send().await;
     }
     forget_session();
-    Ok(())
+    k.store.write(|c| {
+        c.account = SyncState::default();
+        Ok(())
+    })?;
+    k.store.update_others(|c| std::mem::take(&mut c.account) != SyncState::default())
 }
 
 /// The account key while this install holds it: in memory only, with the id of the account it opens.

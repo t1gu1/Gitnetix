@@ -113,7 +113,7 @@ export function AccountPage({ open }: { open: (id: string, title?: string) => vo
 }
 
 function AccountBox({ s, open }: { s: AccountStatus; open: (id: string, title?: string) => void }) {
-  const signOut = useAction("account.signOut", { invalidate: [["account"], ["accountSync"]] });
+  const signOut = useAction("account.signOut", { invalidate: [["account"], ["accountSync"], ["live"], ["backups"]] });
   const checkout = useAction<{ url: string }>("account.checkout");
   const portal = useAction<{ url: string }>("account.portal");
   const plan = s.plan?.id ?? "free";

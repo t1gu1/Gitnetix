@@ -1639,7 +1639,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             Poll::Pending => to(json!({ "status": "pending" })),
         },
         "account.signOut" => {
-            account::sign_out().await?;
+            account::sign_out(k).await?;
             ok()
         }
         "account.setup" => to(json!({ "recoveryKey": account::setup().await? })),
