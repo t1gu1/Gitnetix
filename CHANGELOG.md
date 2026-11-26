@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.36.7] - 2026-11-26
+
 ### Added (App)
 - The publish dialog has a notes field, shown when the changelog generation step is on. A request such as "keep it short" in it carries into the generated changelog.
 
