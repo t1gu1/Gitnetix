@@ -14,6 +14,9 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Fixed (App)
+- The Emoji, Photo and Gravatar tabs in the avatar dialog now sit on their own row above the emoji grid, and the grid uses the dialog's full width. The profile form uses the same layout rules.
+
 ## [0.36.7] - 2026-11-26
 
 ### Added (App)
