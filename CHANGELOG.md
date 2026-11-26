@@ -14,6 +14,9 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Fixed (App)
+- The CLI no longer loses a refreshed sign-in. It waits for the reply, closes stdin, and lets the child process exit on its own, killing it only after 30 seconds, so an expired sign-in renews without asking you to sign in again.
+
 ## [0.36.5] - 2026-11-25
 
 ### Added (App)
