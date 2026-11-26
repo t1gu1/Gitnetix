@@ -36,6 +36,8 @@ export function PublishModal({ pid, view, onClose }: { pid: string; view: Branch
   // Same gate as "Update changelog" in the branch menu.
   const canChangelog = useAiOn("release") && hasChangelog;
   const [updateLog, setUpdateLog] = useState(prefs.shipChangelog);
+  // What the user asks of that AI step; empty lets it write the entries its own way.
+  const [aiRequest, setAiRequest] = useState("");
   // Planned on another release branch: its tag is that branch's to create.
   // Looks merged into this branch (nothing of its own left over it, and the branch moved past it): publishing
   // here releases it. The backend makes sure its commits really came in through a merge.
@@ -45,7 +47,7 @@ export function PublishModal({ pid, view, onClose }: { pid: string; view: Branch
   };
   const planned = version ? ov?.releases.find((r) => r.open && r.branch !== b && r.version.replace(/^v/i, "") === version && !mergedHere(r)) : undefined;
   // The AI changelog step runs inside the publish, after its checks: a refused publish leaves no changelog commit behind.
-  const publish = useAction<PublishResult, { projectId: string; branch: string; version: string; v: boolean; tag?: string; aiChangelog: boolean }>("branches.publish", {
+  const publish = useAction<PublishResult, { projectId: string; branch: string; version: string; v: boolean; tag?: string; aiChangelog: boolean; aiRequest?: string }>("branches.publish", {
     invalidate: [["overview", pid], ["commits", pid], ["projects"]],
     success: (r) =>
       r.pushed
@@ -92,7 +94,7 @@ export function PublishModal({ pid, view, onClose }: { pid: string; view: Branch
         <button
           className="btn btn-primary btn-md"
           disabled={!valid || !!planned || publish.isPending || running}
-          onClick={() => publish.mutate({ projectId: pid, branch: b, version, v: tagV.v, tag: isCustom ? custom : undefined, aiChangelog: canChangelog && updateLog }, { onSuccess: onClose })}
+          onClick={() => publish.mutate({ projectId: pid, branch: b, version, v: tagV.v, tag: isCustom ? custom : undefined, aiChangelog: canChangelog && updateLog, aiRequest: canChangelog && updateLog ? aiRequest.trim() : undefined }, { onSuccess: onClose })}
         >
           {publish.isPending && <span className="spinner" />}
           {publish.isPending ? (hasChangelog ? "Updating changelog & creating tag…" : "Creating tag…") : version ? `Create tag ${tag}` : "Create tag"}
@@ -161,6 +163,23 @@ export function PublishModal({ pid, view, onClose }: { pid: string; view: Branch
           <input type="checkbox" checked={updateLog} onChange={() => setUpdateLog(!updateLog)} />
           <span>First let AI add what {b} changes to the changelog</span>
         </label>
+      )}
+      {canChangelog && updateLog && (
+        <div className="field">
+          <label htmlFor="pub-ai">
+            <span>Notes for AI</span>
+            <span className="faint" style={{ fontWeight: 400 }}>optional</span>
+          </label>
+          <textarea
+            id="pub-ai"
+            className="textarea"
+            rows={2}
+            placeholder={'Leave it empty and we will manage it. Or ask, like "Keep each entry short" or "Mention the new CSV export"'}
+            value={aiRequest}
+            onChange={(e) => setAiRequest(e.target.value)}
+            disabled={publish.isPending}
+          />
+        </div>
       )}
     </Modal>
   );

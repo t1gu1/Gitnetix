@@ -91,7 +91,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("stashes.drop", "Delete a stash for good", "projectId, sha"),
     ("branches.pull", "Fast-forward a branch to its upstream (checked out or not); wip = stash|carry the uncommitted changes the pull would overwrite (refused otherwise); returns conflicts left by carrying them", "projectId, branch, wip?"),
     ("branches.tag", "Tag a branch's tip (annotated, message defaults to the name) and push it to origin", "projectId, branch, name, message?"),
-    ("branches.publish", "Publish a branch (any, a release one too) as a version: date its CHANGELOG.md entry in a commit on it, tag its tip (\"Release <tag>\") and push the branch, under its own name (which it then tracks), and the tag to origin together (pushed = false without an origin remote). Refused before anything changes when the version is not one git can tag (a digit first, then letters, digits, dots and dashes, no \"..\", not ending in \".\" or \".lock\"; a leading v is dropped), the version is tagged already (with or without v), another open release holds it, the branch's checkout is in the middle of a rebase, merge, cherry-pick or revert, or origin has commits the branch lacks. A step failing later, a refused push too, leaves the branch, its tags and its release as they were. No other branch moves; an open release of this branch and version is marked shipped. Returns tag, pushed, changelog (a commit dated the changelog entry)", "projectId, branch, version, v? (the tag starts with v; default: the project's choice), tag? (the tag's full name, taken as written instead of version and v; the changelog dates it without a v before a digit), aiChangelog? (AI first adds the branch's changes to the Unreleased section, after every check; nothing new to add is fine)"),
+    ("branches.publish", "Publish a branch (any, a release one too) as a version: date its CHANGELOG.md entry in a commit on it, tag its tip (\"Release <tag>\") and push the branch, under its own name (which it then tracks), and the tag to origin together (pushed = false without an origin remote). Refused before anything changes when the version is not one git can tag (a digit first, then letters, digits, dots and dashes, no \"..\", not ending in \".\" or \".lock\"; a leading v is dropped), the version is tagged already (with or without v), another open release holds it, the branch's checkout is in the middle of a rebase, merge, cherry-pick or revert, or origin has commits the branch lacks. A step failing later, a refused push too, leaves the branch, its tags and its release as they were. No other branch moves; an open release of this branch and version is marked shipped. Returns tag, pushed, changelog (a commit dated the changelog entry)", "projectId, branch, version, v? (the tag starts with v; default: the project's choice), tag? (the tag's full name, taken as written instead of version and v; the changelog dates it without a v before a digit), aiChangelog? (AI first adds the branch's changes to the Unreleased section, after every check; nothing new to add is fine), aiRequest? (what the user asks of that changelog step, added to its prompt)"),
     ("tags.checkout", "Check out a tag's commit (detached HEAD; uncommitted work comes along)", "projectId, name"),
     ("tags.delete", "Delete a tag, locally and on origin", "projectId, name"),
     ("branches.reset", "Hard-reset a branch to its upstream, dropping local commits (and uncommitted changes when checked out); safe = nothing is lost: refused when the branch has a commit origin never had, uncommitted changes stashed and put back on top. Returns conflicts left by putting them back (the stash is kept then)", "projectId, branch, safe?"),
@@ -870,7 +870,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             ok()
         }
         "branches.publish" => {
-            to(k.publish_branch(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "version")?, p.get("v").and_then(Value::as_bool), os(&p, "tag").as_deref(), b(&p, "aiChangelog")).await?)
+            to(k.publish_branch(&s(&p, "projectId")?, &s(&p, "branch")?, &s(&p, "version")?, p.get("v").and_then(Value::as_bool), os(&p, "tag").as_deref(), b(&p, "aiChangelog"), &os(&p, "aiRequest").unwrap_or_default()).await?)
         }
         "tags.checkout" => {
             k.checkout_tag(&s(&p, "projectId")?, &s(&p, "name")?).await?;
@@ -1765,7 +1765,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             to(json!({ "markdown": markdown, "model": model }))
         }
         "notes.changelog" => to(json!({ "path": k.add_to_changelog(&s(&p, "projectId")?, &s(&p, "markdown")?)? })),
-        "changelog.update" => to(json!({ "message": k.update_changelog(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
+        "changelog.update" => to(json!({ "message": k.update_changelog(&s(&p, "projectId")?, &s(&p, "branch")?, "").await? })),
         "changelog.release" => to(json!({ "message": k.release_changelog(&s(&p, "projectId")?, &s(&p, "version")?).await? })),
         "changelog.latest" => to(json!({ "message": k.changelog_into_latest(&s(&p, "projectId")?, &s(&p, "branch")?).await? })),
         "notes.publish" => {

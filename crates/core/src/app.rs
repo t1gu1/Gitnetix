@@ -5336,11 +5336,12 @@ impl Gitnetix {
     /// commit on it, tag its tip, and push the branch (to its own name on origin, which it tracks from then
     /// on) and the tag together. No other branch moves. `v`: the tag starts with "v"; None follows the
     /// project's choice. `ai_changelog`: AI first adds the branch's changes to the Unreleased section of its
-    /// CHANGELOG.md, once every check passed. Refused before anything changes while its checkout is in the
-    /// middle of a rebase, merge, cherry-pick or revert. A step failing later, a refused push too, puts the
-    /// branch back where it was, untagged, its release still open. `custom`: the tag's full name, taken as
-    /// written instead of `version` and `v`; the changelog then dates it without a "v" before a digit.
-    pub async fn publish_branch(&self, project_id: &str, branch: &str, version: &str, v: Option<bool>, custom: Option<&str>, ai_changelog: bool) -> Result<Published> {
+    /// CHANGELOG.md, once every check passed, following `ai_request` when it is not empty. Refused before
+    /// anything changes while its checkout is in the middle of a rebase, merge, cherry-pick or revert. A step
+    /// failing later, a refused push too, puts the branch back where it was, untagged, its release still open.
+    /// `custom`: the tag's full name, taken as written instead of `version` and `v`; the changelog then dates
+    /// it without a "v" before a digit.
+    pub async fn publish_branch(&self, project_id: &str, branch: &str, version: &str, v: Option<bool>, custom: Option<&str>, ai_changelog: bool, ai_request: &str) -> Result<Published> {
         self.refuse_locked(project_id, branch)?;
         if !self.publishing.lock().unwrap().insert(project_id.to_string()) {
             return Err(Error::Invalid("A tag is already being created in this project. Wait for it to finish.".into()));
@@ -5403,7 +5404,7 @@ impl Gitnetix {
         let mut tagged = false;
         let done: Result<bool> = async {
             if ai_changelog && git.show_file(branch, CHANGELOG).await?.is_some() {
-                match self.update_changelog(project_id, branch).await {
+                match self.update_changelog(project_id, branch, ai_request).await {
                     // Nothing new since its base or latest tag: the entries already listed get dated.
                     Err(Error::Invalid(m)) if m.starts_with(&format!("{branch} has no commits since ")) => {}
                     r => {
@@ -8786,7 +8787,8 @@ impl Gitnetix {
     /// AI adds the changes `branch` brings over its base to the `Unreleased` section of
     /// the branch's CHANGELOG.md, and commits that on the branch. The default branch, or
     /// one with nothing over its base (main, dev), uses the commits since its latest tag.
-    pub async fn update_changelog(&self, project_id: &str, branch: &str) -> Result<String> {
+    /// `request`: what the user asks of this changelog ("keep it short"), added to the prompt when not empty.
+    pub async fn update_changelog(&self, project_id: &str, branch: &str, request: &str) -> Result<String> {
         let p = self.store.project(project_id)?;
         let git = self.git(&p);
         let text = git.show_file(branch, CHANGELOG).await?.ok_or_else(|| Error::Invalid(format!("{branch} has no {CHANGELOG}")))?;
@@ -8808,6 +8810,11 @@ impl Gitnetix {
         let mut t = self.template("changelog", None, Some(&p.id))?;
         let (note, projects) = commit_projects(&git, &commits, &rev).await;
         t.body.push_str(&note);
+        let request = request.trim();
+        if !request.is_empty() {
+            // A variable, so braces in the user's text stay as typed.
+            t.body.push_str("\n\nThe person publishing asks for this. Follow it, and still answer with the section body only:\n{request}");
+        }
         for c in &mut commits {
             if let Some(touched) = projects.get(&c.sha) {
                 c.subject = format!("{} [{touched}]", c.subject);
@@ -8822,6 +8829,7 @@ impl Gitnetix {
         vars.insert("released".into(), if released.is_empty() { "(none)".into() } else { released });
         vars.insert("branch".into(), branch.into());
         vars.insert("base".into(), base);
+        vars.insert("request".into(), request.into());
         let out = self.ask("release", &t, vars, &p.gen_lang.release, None).await?;
         let out = section_lines(&out);
         // Some models repeat the heading they were told to leave out.
