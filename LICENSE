@@ -1,0 +1,139 @@
+Gitnetix Source-Available License
+Version 1.0, November 2026
+
+Copyright (c) 2026 Guillaume Huard Hughes. All rights reserved.
+
+Gitnetix is source-available. It is not open source. You may use the
+app, read its code and help improve it under the terms below. Every
+right this license does not give you in writing stays with the owner.
+
+
+Definitions
+
+"Owner", "we" and "us" mean Guillaume Huard Hughes, the copyright
+holder.
+
+"You" means any person or organization that gets, uses or reads the
+Software.
+
+"Software" means Gitnetix: the source code, builds, installers, icons,
+logos, website and documentation in this repository, and any part of
+them.
+
+"Derivative" means anything copied from the Software or built from its
+code, in whole or in substantial part. An exact copy is a Derivative.
+So is a modified, renamed, rebranded or translated version, and a port
+of the code to another language or framework.
+
+"Contribution" means any code, text, design, translation or other
+material you send to the official Gitnetix project, for example in a
+pull request, an issue or a comment.
+
+
+1. What you may do
+
+a. Download, install and use the official builds of Gitnetix for free,
+   on any number of devices, for personal and work projects, including
+   commercial ones.
+b. Read and study the source code.
+c. Build and run the Software from source on your own devices, to try
+   it, learn from it or test a change.
+d. Fork the official repository on the platform that hosts it, and
+   change your fork, to prepare a Contribution. You may not publish
+   builds of the fork or present it as a separate product.
+e. Share links to the official repository and the official download
+   page.
+f. Quote short parts of the code in a bug report, a review, a
+   discussion or an article about Gitnetix.
+
+
+2. What you may not do
+
+Unless the owner gives you written permission, you may not:
+
+a. Distribute, publish, host or share the Software or a Derivative, as
+   source code or as a build, beyond what section 1 allows. This
+   includes free and non-commercial releases.
+b. Sell, rent, lease or sublicense the Software or a Derivative, charge
+   for access to it, or include it in a product or service you sell or
+   offer to others.
+c. Release an app, product or service that copies the Software or is
+   built from its code, in whole or in substantial part.
+d. Use the Gitnetix name, logo or icons for another product, or in a
+   way that suggests the owner made, approved or supports your work.
+e. Remove or change this license or any copyright notice in the
+   Software.
+
+
+3. Your projects stay yours
+
+This license covers Gitnetix itself. It gives the owner no rights in
+the repositories, code or other work you manage with Gitnetix.
+
+
+4. Contributions
+
+Contributions are welcome. When you send one:
+
+a. You confirm that you wrote it, or that you have the right to send
+   it under these terms.
+b. You give the owner a non-exclusive, worldwide, royalty-free,
+   perpetual and irrevocable license to use, copy, change, distribute,
+   sublicense and sell your Contribution, as part of the Software or on
+   its own, under this license or any other, including a paid one.
+c. You get no ownership of the Software, no right to payment and no
+   rights beyond this license.
+d. The owner may accept, change or refuse any Contribution without
+   giving a reason.
+
+
+5. Third-party parts
+
+The Software includes parts made by others, such as libraries, fonts,
+templates and speech models. Each of those parts stays under its own
+license, found next to it or in its package. This license does not
+change those licenses.
+
+
+6. No warranty
+
+THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY
+OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE AND
+NON-INFRINGEMENT. YOU USE IT AT YOUR OWN RISK.
+
+
+7. Limitation of liability
+
+TO THE FULLEST EXTENT THE LAW ALLOWS, THE OWNER AND THE CONTRIBUTORS
+ARE NOT LIABLE FOR ANY CLAIM, DAMAGE, LOSS OR OTHER LIABILITY, WHETHER
+DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL OR PUNITIVE, AND
+WHETHER IN CONTRACT, TORT OR OTHERWISE, THAT ARISES FROM OR RELATES TO
+THE SOFTWARE OR ITS USE, EVEN IF THEY WERE TOLD THAT SUCH DAMAGE WAS
+POSSIBLE.
+
+The Gitnetix use and liability policy explains this in more detail and
+is part of this license. Read it in POLICY.md or at
+https://github.com/t1gu1/Gitnetix/blob/main/POLICY.md.
+
+
+8. End of the license
+
+If you break this license, your rights under it end at once. You must
+then stop using the Software and delete every copy and Derivative you
+made. Sections 4, 6 and 7 keep applying after the license ends.
+
+
+9. Changes and enforceability
+
+The owner may publish new versions of this license. Each release of
+the Software is covered by the license that comes with it.
+
+If a court finds that any part of this license cannot be enforced, the
+rest still applies.
+
+
+10. Permission
+
+To ask for a right this license does not give you, open an issue at
+https://github.com/t1gu1/Gitnetix/issues.

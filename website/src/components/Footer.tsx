@@ -13,6 +13,8 @@ export default function Footer() {
     <a href={u('#faq')}>FAQ</a>
     <a href={u('download/')}>Download</a>
     <a href={u('releases.xml')}>RSS</a>
+    <a href={`${REPO}/blob/main/LICENSE`}>License</a>
+    <a href={`${REPO}/blob/main/POLICY.md`}>Policy</a>
     <a href="https://adevjourney.wtf/en/">Made by Guillaume Huard Hughes</a>
     </nav>
     </div>

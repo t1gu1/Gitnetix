@@ -2,7 +2,7 @@
 name = "gitnetix-server"
 version.workspace = true
 edition.workspace = true
-license.workspace = true
+license-file.workspace = true
 description = "Companion HTTP API (mobile app, remote control) and MCP bridge for Gitnetix"
 
 [[bin]]

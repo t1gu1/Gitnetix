@@ -14,6 +14,12 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (App)
+- Gitnetix now has a source-available license in LICENSE and a use and liability policy in POLICY.md. You can use the app for free, read the code and send contributions, but you can't redistribute it, sell it or release a copy of it. You use it at your own risk.
+
+### Added (Website)
+- License and Policy links in the footer.
+
 ## [0.36.6] - 2026-11-26
 
 ### Fixed (App)

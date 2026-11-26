@@ -138,4 +138,4 @@ language setting works; the interface itself is English), mobile builds have not
 
 ---
 
-Made by Guillaume Huard Hughes · [A Dev Journey](https://adevjourney.wtf/en/)
+Made by Guillaume Huard Hughes · [A Dev Journey](https://adevjourney.wtf/en/) · [License](LICENSE) · [Policy](POLICY.md)
