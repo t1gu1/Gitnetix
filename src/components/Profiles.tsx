@@ -242,20 +242,20 @@ export function useProfileForm(init: { name: string; avatar: string; hue: number
         {/* Agents and the terminal run git themselves: their commits follow the Git config. */}
         <span className="hint">{badEmail ? "Finish the email to save." : "On the commits Gitnetix makes in this profile's projects. Left empty, your Git config decides."}</span>
       </div>
-      <div className="field">
-        <span className="flabel">
-          Avatar
-          <Seg
-            label="Avatar"
-            value={kind}
-            onChange={setKind}
-            options={[
-              { value: "emoji", label: "Emoji" },
-              { value: "photo", label: "Photo" },
-              { value: "gravatar", label: "Gravatar" },
-            ]}
-          />
-        </span>
+      {/* One column: the tabs on their own row, the emoji grid the dialog's full width. */}
+      <div className="field field-stack">
+        <span className="flabel">Avatar</span>
+        <Seg
+          label="Avatar"
+          grid
+          value={kind}
+          onChange={setKind}
+          options={[
+            { value: "emoji", label: "Emoji" },
+            { value: "photo", label: "Photo" },
+            { value: "gravatar", label: "Gravatar" },
+          ]}
+        />
         {kind === "emoji" && (
           <div className="profile-avatars" role="radiogroup" aria-label="Emoji">
             {["", ...EMOJIS].map((a) => (

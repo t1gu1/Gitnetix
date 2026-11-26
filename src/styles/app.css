@@ -10189,10 +10189,6 @@ label.sheet-row {
   align-items: center;
   gap: 16px;
 }
-/* The avatar label carries its Emoji / Photo / Gravatar switch. */
-.profile-form .flabel {
-  align-items: center;
-}
 /* Author name and email side by side, stacked when narrow. */
 .profile-git {
   display: grid;
@@ -10574,15 +10570,15 @@ label.sheet-row {
     grid-column: 1;
   }
 }
-/* An agent's request: its label above, so the box takes the dialog's full width. */
-.modal-body > .field.field-stack {
+/* An agent's request, a profile's avatar: the label above, so the controls take the dialog's full width. */
+:is(.modal-body, .modal-body > form) > .field.field-stack {
   grid-template-columns: minmax(0, 1fr);
 }
-.modal-body > .field.field-stack > :first-child {
+:is(.modal-body, .modal-body > form) > .field.field-stack > :first-child {
   grid-area: auto;
   padding-top: 0;
 }
-.modal-body > .field.field-stack > :not(:first-child) {
+:is(.modal-body, .modal-body > form) > .field.field-stack > :not(:first-child) {
   grid-column: 1;
 }
 /* A row's sentence, on the label's line. */
