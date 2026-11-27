@@ -16,6 +16,7 @@ the in-app update prompt.
 
 ### Added (App)
 - Conflicts that need no choice are settled without AI, in milliseconds, before AI is asked: lines both sides added at the same place (both kept), changes to lines next to each other, a side that only changed line endings. AI gets the rest, such as a line both sides changed or two additions that declare the same name. A file edited by hand since the conflict appeared goes to AI as it is.
+- Nested tasks show under their own entry in the log.
 
 ### Changed (App)
 - AI resolves conflicts faster. Claude Code and Copilot now answer each file without tools, MCP servers, hooks or project instructions, which starts them about 2 s sooner and sends a fraction of the tokens. A slow file no longer holds up the next ones. Copilot's commit messages, branch names and pull request texts start the same lean way.
