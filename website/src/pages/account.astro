@@ -1,0 +1,21 @@
+---
+// Where Stripe sends buyers back (the back-end's BILLING_RETURN_URL): ?checkout=success or ?checkout=cancel after Checkout, nothing after the billing portal.
+import Base from '../layouts/Base.astro';
+import { u } from '../lib/changelog';
+---
+<Base title="Gitnetix account" description="Back from billing: your Gitnetix plan shows in the app, in Settings, Gitnetix account." noindex>
+<section aria-labelledby="acct-h" style="max-width:760px;margin:0 auto;padding:120px 24px;text-align:center;display:flex;flex-direction:column;align-items:center;gap:20px">
+<span class="stn-main" aria-hidden="true"></span>
+<h1 id="acct-h" class="display" style="font-size:clamp(48px,6.4vw,84px)">Back to Gitnetix.</h1>
+<p id="acct-p" style="margin:0;color:var(--muted);font-size:19px;text-wrap:pretty">Changes to your card, seats or plan show in Gitnetix, in Settings, Gitnetix account. You can close this tab.</p>
+<a class="btn-s btn-xl" href={u('pricing/')}>See the plans</a>
+</section>
+</Base>
+
+<script is:inline>
+  const say = {
+    success: ['Thanks for subscribing.', 'Go back to Gitnetix. Settings, Gitnetix account shows your plan once Stripe confirms it, within seconds. You can close this tab.'],
+    cancel: ['Checkout canceled.', 'Nothing was charged. You can subscribe any time from Gitnetix, in Settings, Gitnetix account. You can close this tab.'],
+  }[new URLSearchParams(location.search).get('checkout')];
+  if (say) [document.getElementById('acct-h').textContent, document.getElementById('acct-p').textContent] = say;
+</script>

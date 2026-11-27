@@ -7,5 +7,5 @@ export default defineConfig({
   site: 'https://gitnetix.app',
   base: '/',
   trailingSlash: 'always',
-  integrations: [react(), sitemap({ filter: (page) => !page.endsWith('/404/') })],
+  integrations: [react(), sitemap({ filter: (page) => !page.endsWith('/404/') && !page.endsWith('/account/') })],
 });

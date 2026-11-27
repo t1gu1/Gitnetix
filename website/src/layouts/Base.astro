@@ -22,8 +22,10 @@ interface Props {
   page?: Page;
   type?: 'website' | 'article';
   jsonLd?: object[];
+  /** Pages search engines should skip, such as the billing return page. */
+  noindex?: boolean;
 }
-const { title, description, page, type = 'website', jsonLd = [] } = Astro.props;
+const { title, description, page, type = 'website', jsonLd = [], noindex } = Astro.props;
 const canonical = new URL(Astro.url.pathname, Astro.site).href;
 const og = ogImage(Astro.site);
 // <html> starts in DEFAULT_THEME (dark): the first paint and visitors without JS see it; the script below shows the visitor's pick.
@@ -72,7 +74,7 @@ const og = ogImage(Astro.site);
   addEventListener('themechange', (e) => pick(e.detail));
 </script>
 <link rel="canonical" href={canonical}>
-<meta name="robots" content="index, follow, max-image-preview:large">
+<meta name="robots" content={noindex ? 'noindex' : 'index, follow, max-image-preview:large'}>
 <meta name="theme-color" content={resolveTheme(DEFAULT_THEME, 'dark').bg}>
 <link rel="icon" type="image/png" sizes="64x64" href={u('favicon.png')}>
 <link rel="icon" type="image/svg+xml" href={u('favicon.svg')} data-mark>

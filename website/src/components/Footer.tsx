@@ -10,6 +10,7 @@ export default function Footer() {
     <a href={REPO}>GitHub</a>
     <a href={u('releases/')}>Changelog</a>
     <a href={u('compare/')}>Compare</a>
+    <a href={u('pricing/')}>Pricing</a>
     <a href={u('#faq')}>FAQ</a>
     <a href={u('download/')}>Download</a>
     <a href={u('releases.xml')}>RSS</a>

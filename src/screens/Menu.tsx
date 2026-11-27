@@ -423,7 +423,7 @@ function AppSettings({ cfg, open }: { cfg?: Config; open: (id: string) => void }
       </SheetBox>
       <SheetBox title="AI & connections">
         <div className="sheet-col">
-          <SheetLink label="Gitnetix account" tip="Sync, encrypted backups, your phone from anywhere, and teams" value={account?.signedIn ? `@${account.user?.login}` : "Not signed in"} none={!account?.signedIn} onClick={() => open("account")} />
+          <SheetLink label="Gitnetix account" tip="Sync, encrypted backups, teams, and soon your phone from anywhere" value={account?.signedIn ? `@${account.user?.login}` : "Not signed in"} none={!account?.signedIn} onClick={() => open("account")} />
           <SheetLink label="AI setup" tip="Providers, models and task routing" restates value="Providers & models" onClick={() => open("ai")} />
           <SheetLink label="Templates" tip="Prompts for commits, PRs and release notes" value="Prompts" onClick={() => open("templates")} />
           <SheetLink label="Git providers" value={git || "None"} none={!git} onClick={() => open("git")} />

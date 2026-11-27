@@ -5,7 +5,7 @@
   },
   {
     "q": "Is Gitnetix free?",
-    "a": "Yes. Gitnetix is free to download and use on macOS, Windows and Linux, and updates itself. AI features run through your own signed-in CLI (Claude Code, Codex, Antigravity, Copilot) or an API key, so any AI cost goes to your provider, and local models through Ollama cost nothing."
+    "a": "Yes. Gitnetix is free to download and use on macOS, Windows and Linux, and updates itself. AI features run through your own signed-in CLI (Claude Code, Codex, Antigravity, Copilot) or an API key, so any AI cost goes to your provider, and local models through Ollama cost nothing. The paid <a href=\"/pricing/\">Pro and Team plans</a> are optional. They add an account that syncs your projects and settings across computers, encrypted backups, live updates, and a shared project list for teams."
   },
   {
     "q": "How is it different from other Git GUIs?",

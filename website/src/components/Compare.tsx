@@ -17,7 +17,7 @@ const GROUPS: { title: string; rows: [string, Cell, Cell, Cell, Cell][] }[] = [
   {
     title: 'The basics',
     rows: [
-      ['Price', t('Free'), t('Free for local and public repos. Private repos need a paid plan.'), t('$59.99 once. Free to evaluate.'), t('Free')],
+      ['Price', t('Free. Optional Pro and Team plans add sync, backups and team lists.'), t('Free for local and public repos. Private repos need a paid plan.'), t('$59.99 once. Free to evaluate.'), t('Free')],
       ['macOS, Windows, Linux', y('All three'), y('All three'), p('macOS and Windows'), p('macOS and Windows')],
       ['Use it without an account', y(), p('Sign-in asked at setup (GitKraken account)'), y(), p('Windows asks for a Bitbucket sign-in at setup. Optional on Mac.')],
       ['Manage it from your phone', y('Any browser, paired by QR code'), n(), n(), n()],
@@ -72,7 +72,7 @@ const GROUPS: { title: string; rows: [string, Cell, Cell, Cell, Cell][] }[] = [
 ];
 
 const CARDS = [
-  { name: 'Gitnetix', price: 'Free', os: 'macOS · Windows · Linux', view: 'Branch map', best: 'You ship from release branches and run coding agents on them.' },
+  { name: 'Gitnetix', price: 'Free, with optional Pro and Team plans', os: 'macOS · Windows · Linux', view: 'Branch map', best: 'You ship from release branches and run coding agents on them.' },
   { name: 'GitKraken', price: 'Free for public repos, paid for private', os: 'macOS · Windows · Linux', view: 'Commit graph', best: 'A team that wants the most complete graph client, with GitLab and Bitbucket built in.' },
   { name: 'Fork', price: '$59.99, once', os: 'macOS · Windows', view: 'Commit graph', best: 'A native app you pay for once, with strong rebase and history tools.' },
   { name: 'Sourcetree', price: 'Free', os: 'macOS · Windows', view: 'Commit graph', best: 'A free, classic client close to Bitbucket, and still the one for Mercurial.' },

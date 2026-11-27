@@ -1,0 +1,30 @@
+---
+import Pricing from '../components/Pricing';
+import Base from '../layouts/Base.astro';
+---
+<Base title="Gitnetix pricing: the free app, Pro and Team" description="Gitnetix is free. Pro adds encrypted sync across computers, backups and live updates. Team adds a shared project list, roles and policies. 7 days free." page="pricing">
+<Pricing />
+</Base>
+
+<style is:global>
+/* Plan cards: Pro in ink, the price in the titles' face, what each plan adds as a checked list under a hairline. */
+.plans{list-style:none;margin:0;padding:0;display:grid;grid-template-columns:repeat(auto-fit,minmax(min(320px,100%),1fr));gap:16px}
+.plan{display:flex;flex-direction:column;gap:20px;padding:28px}
+.plan.on{border-color:var(--fg)}
+.plan h2{margin:0;font:600 30px/1 var(--display);letter-spacing:.02em;text-transform:uppercase}
+.plan-who{margin:10px 0 0;font-size:15px;color:var(--muted)}
+.price{margin:0;font:600 44px/1 var(--display);letter-spacing:.02em;text-transform:uppercase}
+.per{margin:8px 0 0;font-size:14px;color:var(--faint)}
+.plan-adds{padding-top:20px;border-top:1px solid var(--line)}
+.plan-adds .eyebrow{margin-bottom:14px}
+.checks{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:14px}
+.checks li{display:flex;gap:12px;font-size:15px;line-height:1.5;color:var(--muted)}
+.checks svg{flex:none;margin-top:3px;color:var(--add)}
+.checks b{display:block;font-weight:600;color:var(--fg)}
+.checks.ink li{color:var(--fg)}
+.checks.ink svg{color:var(--fg)}
+.checks.dim svg{color:var(--faint)}
+/* Announced, not in the app yet: a grey mark and a tag after its name. */
+.checks .soon svg{color:var(--faint)}
+.checks b .vtag{height:18px;margin-left:8px;padding:0 6px;font-size:10px;vertical-align:1px}
+</style>

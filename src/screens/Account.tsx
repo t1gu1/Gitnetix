@@ -62,8 +62,21 @@ interface EnterpriseView {
   hasKey: boolean;
 }
 
-// Not on focus: offline, each try would only log one more failure. Actions on the account refresh it.
+// Not on focus: offline, each try would only log one more failure. Actions on the account refresh it, and so does coming back to its pages.
 export const useAccount = () => useQuery({ queryKey: ["account"], queryFn: () => rpc<AccountStatus>("account.status"), staleTime: 30_000, retry: 1, refetchOnWindowFocus: false });
+
+/** Back from Stripe's checkout or billing portal in the browser, the plan shows at once: the queries' own refetch only follows the page's visibility. */
+function useRefreshOnFocus() {
+  const qc = useQueryClient();
+  useEffect(() => {
+    const back = () => {
+      void qc.invalidateQueries({ queryKey: ["account"] });
+      void qc.invalidateQueries({ queryKey: ["enterprise"] });
+    };
+    addEventListener("focus", back);
+    return () => removeEventListener("focus", back);
+  }, [qc]);
+}
 
 /** Keeps this install in step with the account: on start, every 5 minutes, back on the window, and 5 s after a settings change. */
 export function useAccountSync() {
@@ -86,6 +99,7 @@ const host = (url: string) => url.replace(/^https?:\/\//, "");
 export function AccountPage({ open }: { open: (id: string, title?: string) => void }) {
   const qc = useQueryClient();
   const a = useAccount();
+  useRefreshOnFocus();
   if (a.isPending) return <Loading />;
   if (a.error) return <ErrorBox error={a.error} />;
   const s = a.data;
@@ -93,7 +107,7 @@ export function AccountPage({ open }: { open: (id: string, title?: string) => vo
     return (
       <>
         <p className="hint conn-intro">
-          Gitnetix works without an account. With Pro, an account keeps your project list and settings on every computer, backs up your data, and reaches your computer from your phone anywhere. Team adds
+          Gitnetix works without an account. With Pro, an account keeps your project list and settings on every computer and backs up your data. Reaching your computer from your phone anywhere is coming soon. Team adds
           a shared project list for your company. Your lists, settings and backups are encrypted on your devices, so the Gitnetix server can't read them. The first 7 days are free.
         </p>
         <DeviceSignIn method="account" name="GitHub" site="GitHub" onDone={() => qc.invalidateQueries({ queryKey: ["account"] })} />
@@ -122,7 +136,7 @@ function AccountBox({ s, open }: { s: AccountStatus; open: (id: string, title?: 
   return (
     <SheetBox className="conn-box" title="Gitnetix account" sub={`@${s.user?.login}`} aside={<button className="btn btn-sm" disabled={signOut.isPending} onClick={() => signOut.mutate({})}>Sign out</button>}>
       <div className="sheet-col">
-        <SheetRow label="Plan" tip="Free is the app alone; Pro adds sync, backups and your phone anywhere; Team is bought for an enterprise and covers its members">
+        <SheetRow label="Plan" tip="Free is the app alone; Pro adds sync and backups, and soon your phone anywhere; Team is bought for an enterprise and covers its members">
           <span className="sheet-v">
             {plan === "free" ? "Free" : plan === "pro" ? "Pro" : own ? "Team" : "Team, through your enterprise"}
             {s.billing?.status === "trialing" && ", free trial"}
@@ -134,7 +148,7 @@ function AccountBox({ s, open }: { s: AccountStatus; open: (id: string, title?: 
           </SheetRow>
         )}
         {plan === "free" ? (
-          <SheetRow label="Pro" tip="Sync, backups and your phone anywhere. The first subscription starts with 7 free days">
+          <SheetRow label="Pro" tip="Sync and backups, and soon your phone anywhere. The first subscription starts with 7 free days">
             <button className="btn btn-sm btn-primary" disabled={checkout.isPending} onClick={() => checkout.mutate({ plan: "pro" }, { onSuccess: (r) => openExternal(r.url) })}>
               Subscribe
             </button>
@@ -345,6 +359,7 @@ const roleName = (r: Role) => r[0].toUpperCase() + r.slice(1);
 export function EnterprisePage({ id, project, back, open }: { id: string; project?: Project; back: () => void; open: (id: string, title?: string) => void }) {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ["enterprise", id], queryFn: () => rpc<EnterpriseView>("account.enterprise", { id }) });
+  useRefreshOnFocus();
   const me = useAccount().data?.user?.id;
   const refresh = { invalidate: [["enterprise", id], ["account"]] };
   const invite = useAction("account.invite", { ...refresh, success: "Invited: they accept it from their Gitnetix account" });

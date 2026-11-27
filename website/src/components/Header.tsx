@@ -3,7 +3,7 @@ import { THEMES } from '../../../src/lib/themes';
 import { Logo } from '../../../src/components/Logo';
 import ThemePicker from './ThemePicker';
 
-export type Page = 'home' | 'releases' | 'download' | 'compare';
+export type Page = 'home' | 'releases' | 'download' | 'compare' | 'pricing';
 
 /** [label, href, the page it marks as current] */
 const nav = [
@@ -12,6 +12,7 @@ const nav = [
   ['Agents', u('#agents')],
   ['Releases', u('releases/'), 'releases'],
   ['Compare', u('compare/'), 'compare'],
+  ['Pricing', u('pricing/'), 'pricing'],
   ['FAQ', u('#faq')],
 ];
 

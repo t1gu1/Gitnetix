@@ -22,6 +22,13 @@ the in-app update prompt.
 - Enterprise policies, all off until an admin turns them on: protected branches (no direct push to the default branch or a release branch), signed commits, the branch types new branches may use, and which agents may run on the enterprise's projects, with Bypass allowed or not. Each member's Gitnetix follows them on the projects of the enterprise's list and says which policy refused an action.
 - Gitnetix now has a source-available license in LICENSE and a use and liability policy in POLICY.md. You can use the app for free, read the code and send contributions, but you can't redistribute it, sell it or release a copy of it. You use it at your own risk.
 
+### Added (Website)
+- A Pricing page with the Free, Pro and Team plans: what each plan adds, how the 7 free days and billing work, what the Gitnetix server can and can't read, and how to subscribe from the app. A short Pro and Team box on the home page links to it, and so do the header and footer.
+- The page Stripe opens after a checkout or the billing portal, at /account/, says whether the checkout went through and sends you back to Gitnetix.
+
+### Changed (Website)
+- The FAQ's "Is Gitnetix free?" answer and the comparison's price row mention the optional Pro and Team plans.
+
 ## [0.36.10] - 2026-11-28
 
 ### Added (App)

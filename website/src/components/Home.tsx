@@ -272,6 +272,26 @@ export default function Home({ version, demo, agents, phone }: { version: string
     </div>
     </section>
 
+    {/* PRO AND TEAM: a short word on the paid plans, the Pricing page has the rest */}
+    <section className="sec" aria-labelledby="plans-h">
+    <div className="box" style={{ padding: 'clamp(24px, 4vw, 40px)', display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '28px 56px', position: 'relative' }}>
+    <span className="stn" aria-hidden="true" style={{ top: 'clamp(26px, 4vw, 42px)', left: '-73px' }}></span>
+    <div style={{ flex: '1 1 360px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+    <p className="eyebrow" style={{ margin: '0' }}>Pro and Team · 7 days free</p>
+    <h2 id="plans-h" className="display" style={{ fontSize: 'clamp(28px, 3vw, 36px)' }}>Your Gitnetix on every computer.</h2>
+    <p style={{ margin: '0', color: 'var(--muted)', fontSize: '16px', textWrap: 'pretty' }}>The app stays free, with no account. Pro adds one: your projects and settings on every computer you sign in on, encrypted backups, and live updates from GitHub. Team shares a project list and rules with your company.</p>
+    </div>
+    <div style={{ flex: '1 1 300px', display: 'flex', flexDirection: 'column', gap: '18px', alignItems: 'flex-start' }}>
+    <dl style={{ margin: '0', width: '100%', borderTop: '1px solid var(--line)' }}>
+    {[['Free', 'The whole app, no account'], ['Pro', 'Sync, encrypted backups, live updates'], ['Team', 'Pro for each member, a shared project list, policies']].map(([k, v]) => (
+    <div key={k} style={{ display: 'flex', gap: '16px', alignItems: 'baseline', padding: '10px 0', borderBottom: '1px solid var(--line)' }}><dt style={{ width: '56px', flex: 'none', font: '600 18px/1 var(--display)', letterSpacing: '.02em', textTransform: 'uppercase' }}>{k}</dt><dd style={{ margin: '0', fontSize: '15px', color: 'var(--muted)' }}>{v}</dd></div>
+    ))}
+    </dl>
+    <a className="btn-s" href={u('pricing/')}>See the plans <span aria-hidden="true">→</span></a>
+    </div>
+    </div>
+    </section>
+
     {/* FAQ */}
     <section id="faq" className="sec" aria-labelledby="faq-h">
     <Head id="faq-h" title="Questions, answered." />
