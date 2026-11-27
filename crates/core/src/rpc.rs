@@ -444,7 +444,7 @@ fn avatars_are_an_emoji_a_photo_or_a_gravatar_email() {
 }
 
 /// Reads polled all the time: logged only when they fail.
-const QUIET: &[&str] = &[".info", ".linkedLines", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".counts", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "analytics.day", "analytics.sprints", "analytics.weekly", "shell.write", "shell.resize", "shell.scripts", "ui.setView", "github.signInPoll", "azure.signInPoll", "account.status", "account.signInPoll", "account.sync", "account.enterprise", "account.invitations", "account.live", "account.audit", "account.enterpriseAudit", "account.backups", "gitlab.signInPoll", "github.repos", "gitlab.repos", "bitbucket.repos", "gitea.repos"];
+const QUIET: &[&str] = &[".info", ".linkedLines", ".get", ".list", ".overview", ".files", ".diff", ".blobs", ".commits", ".counts", ".catalog", ".statuses", ".versions", ".projects", ".refs", ".range", ".preview", ".clear", "analytics.day", "analytics.sprints", "analytics.weekly", "shell.write", "shell.resize", "shell.scripts", "ui.setView", "github.signInPoll", "azure.signInPoll", "account.status", "account.signInPoll", "account.sync", "account.enterprise", "account.invitations", "account.live", "account.audit", "account.enterpriseAudit", "account.backups", "phones.status", "phones.pair", "gitlab.signInPoll", "github.repos", "gitlab.repos", "bitbucket.repos", "gitea.repos"];
 
 /// Actions in flight.
 static BUSY: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
@@ -1630,7 +1630,7 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             crate::git::save_login(&s(&p, "host")?, login)?;
             ok()
         }
-        // Not in METHODS: an MCP agent must not sign in to the Gitnetix account, approve installs or change enterprises.
+        // Not in METHODS: an MCP agent must not sign in to the Gitnetix account, approve installs, change enterprises or pair phones.
         "account.status" => account::status().await,
         "account.signInStart" => to(account::sign_in_start().await?),
         "account.signInPoll" => match account::sign_in_poll(&s(&p, "deviceCode")?).await? {
@@ -1705,6 +1705,10 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             ok()
         }
         "account.setLive" => crate::live::set(k, b(&p, "on")).await,
+        "phones.status" => crate::phone::status(k).await,
+        "phones.set" => crate::phone::set(k, b(&p, "on")).await,
+        "phones.pair" => crate::phone::pair(k).await,
+        "phones.remove" => crate::phone::remove(k, &s(&p, "id")?).await,
         "account.audit" => account::api(Method::GET, &format!("/v1/me/audit{}", before(&p)), None).await,
         "account.enterpriseAudit" => account::api(Method::GET, &format!("/v1/enterprises/{}/audit{}", account::hex_id(&s(&p, "enterpriseId")?)?, before(&p)), None).await,
         "account.setPolicies" => {

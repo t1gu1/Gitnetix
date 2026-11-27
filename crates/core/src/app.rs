@@ -30,6 +30,8 @@ use crate::templates::{self, Template};
 use crate::tickets::{self, Ticket};
 
 pub struct Gitnetix {
+    /// This engine, for tasks that outlive the call that starts them: the relay's (live.rs).
+    pub(crate) me: std::sync::Weak<Gitnetix>,
     pub store: Store,
     pub agents: AgentManager,
     pub shells: crate::shell::Shells,
@@ -2805,7 +2807,7 @@ impl Gitnetix {
         let shells = crate::shell::Shells::new(events.clone());
         crate::log::attach(events.clone(), dir);
         crate::log::started();
-        let k = Arc::new(Gitnetix { store, agents, shells, events, dir: dir.to_path_buf(), dictation: Default::default(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), history: Default::default(), building: Default::default(), cleaning: Default::default(), shipped: Default::default(), hosted: Default::default(), auto_fetch: Default::default(), worktrees: LastCache::open(dir.join("worktrees-cache.json")), drafts: Default::default(), sprint_fetches: Default::default(), runs: Default::default(), publishing: Default::default() });
+        let k = Arc::new_cyclic(|me| Gitnetix { me: me.clone(), store, agents, shells, events, dir: dir.to_path_buf(), dictation: Default::default(), protected: Default::default(), watcher: Default::default(), commits: CommitCache::open(dir), views: ViewCache::open(dir.join("overview-cache")), history: Default::default(), building: Default::default(), cleaning: Default::default(), shipped: Default::default(), hosted: Default::default(), auto_fetch: Default::default(), worktrees: LastCache::open(dir.join("worktrees-cache.json")), drafts: Default::default(), sprint_fetches: Default::default(), runs: Default::default(), publishing: Default::default() });
         k.rewatch();
         Ok(k)
     }

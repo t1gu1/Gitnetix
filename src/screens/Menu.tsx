@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type CSSProperties } from "react";
 
 import { useAction, useConfig, useProjectPrefs } from "../api/hooks";
-import { currentRemote, isLocal, isTauri, saveRemote } from "../api/transport";
+import { currentRelay, currentRemote, isLocal, isTauri, saveRelay, saveRemote } from "../api/transport";
 import type { Config, DialogPrefs, Project, UserProfile } from "../api/types";
 import { BranchTypesPage } from "../components/BranchTypes";
 import { Icon } from "../components/Icon";
@@ -251,20 +251,24 @@ function ProfileCard({ cfg }: { cfg: Config }) {
 /** Gitnetix on a phone beside the profile: its QR code on the computer, the desktop it is paired with on the phone. */
 function PhoneSlot({ cfg, onUnpair }: { cfg?: Config; onUnpair: () => void }) {
   if (isLocal) return cfg ? <PhoneCard server={cfg.server} /> : null;
+  const relay = currentRelay();
   return (
     <div className="phone-card">
       <span className="phone-icon">
         <Icon name="phone" size={18} />
       </span>
       <div className="col" style={{ gap: 4, minWidth: 0 }}>
-        <strong className="phone-title">Connected to your desktop</strong>
-        <span className="mono hint ellipsis">{currentRemote()?.url}</span>
+        <strong className="phone-title">{relay ? `Connected to ${relay}` : "Connected to your desktop"}</strong>
+        <span className={relay !== null ? "hint ellipsis" : "mono hint ellipsis"}>{relay !== null ? "From anywhere, through the Gitnetix relay" : currentRemote()?.url}</span>
       </div>
       <div className="phone-foot">
         <button
           className="btn btn-sm btn-ghost btn-danger"
           onClick={() => {
-            saveRemote(null);
+            if (relay !== null) {
+              void import("@tauri-apps/api/core").then(({ invoke }) => invoke("relay_forget"));
+              saveRelay(null);
+            } else saveRemote(null);
             onUnpair();
           }}
         >
@@ -423,7 +427,7 @@ function AppSettings({ cfg, open }: { cfg?: Config; open: (id: string) => void }
       </SheetBox>
       <SheetBox title="AI & connections">
         <div className="sheet-col">
-          <SheetLink label="Gitnetix account" tip="Sync, encrypted backups, teams, and soon your phone from anywhere" value={account?.signedIn ? `@${account.user?.login}` : "Not signed in"} none={!account?.signedIn} onClick={() => open("account")} />
+          <SheetLink label="Gitnetix account" tip="Sync, encrypted backups, teams, and your phone from anywhere" value={account?.signedIn ? `@${account.user?.login}` : "Not signed in"} none={!account?.signedIn} onClick={() => open("account")} />
           <SheetLink label="AI setup" tip="Providers, models and task routing" restates value="Providers & models" onClick={() => open("ai")} />
           <SheetLink label="Templates" tip="Prompts for commits, PRs and release notes" value="Prompts" onClick={() => open("templates")} />
           <SheetLink label="Git providers" value={git || "None"} none={!git} onClick={() => open("git")} />

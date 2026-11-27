@@ -1,7 +1,10 @@
-// Two ways to reach the engine, same RPC surface:
+// Three ways to reach the engine, same RPC surface:
 //  - local: inside the desktop Tauri app (invoke → Rust)
 //  - remote: the mobile app or a plain browser talking to a desktop's
 //    companion API over HTTP + Server-Sent Events.
+//  - relay: the mobile app from anywhere, through the Gitnetix relay. Its Rust
+//    side holds the encrypted channel (src-tauri/src/remote.rs), so calls and
+//    events go through invoke as on the desktop.
 
 import { agentConsent } from "../lib/agentConsent";
 import type { GitnetixEvent } from "./types";
@@ -29,6 +32,8 @@ export interface Remote {
 }
 
 const REMOTE_KEY = "gitnetix.remote";
+/** Paired through the relay, with the computer's name. */
+const RELAY_KEY = "gitnetix.relay";
 
 export const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 const isMobileUA = typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
@@ -49,13 +54,39 @@ export function saveRemote(r: Remote | null) {
   try {
     if (r) localStorage.setItem(REMOTE_KEY, JSON.stringify(r));
     else localStorage.removeItem(REMOTE_KEY);
+    if (r) localStorage.removeItem(RELAY_KEY);
   } catch {
     /* storage unavailable: pairing lasts for this session only */
   }
   remote = r;
+  if (r) relay = null;
 }
 
 let remote: Remote | null = isLocal ? null : loadRemote();
+let relay: string | null = isLocal ? null : (() => {
+  try {
+    return localStorage.getItem(RELAY_KEY);
+  } catch {
+    return null;
+  }
+})();
+
+/** Paired through the relay with the computer called `name`, or not any more (null). It replaces the network pairing, since there is one at a time. */
+export function saveRelay(name: string | null) {
+  try {
+    if (name !== null) localStorage.setItem(RELAY_KEY, name);
+    else localStorage.removeItem(RELAY_KEY);
+    if (name !== null) localStorage.removeItem(REMOTE_KEY);
+  } catch {
+    /* storage unavailable: pairing lasts for this session only */
+  }
+  relay = name;
+  if (name !== null) remote = null;
+}
+
+export function currentRelay() {
+  return relay;
+}
 
 /** The menu's QR code is the companion's own page with `#token=…`. */
 export function remoteFromLink(link: URL | Location): Remote | null {
@@ -100,10 +131,10 @@ export async function rpc<T = unknown>(method: string, params: Record<string, un
   if ((method === "agents.start" || (method === "items.create" && params.startAgent === true)) && !(await agentConsent())) {
     throw new RpcError("cancelled", "Agent not started");
   }
-  if (isLocal) {
+  if (isLocal || relay !== null) {
     const { invoke } = await import("@tauri-apps/api/core");
     try {
-      return await invoke<T>("rpc", { method, params });
+      return await invoke<T>(isLocal ? "rpc" : "relay_rpc", { method, params });
     } catch (e) {
       const err = e as { code?: string; message?: string; host?: string; repo?: string; path?: string } | string;
       if (typeof err === "string") throw new RpcError("other", err);
@@ -128,7 +159,7 @@ export async function rpc<T = unknown>(method: string, params: Record<string, un
 
 /** Subscribe to engine events. Returns an unsubscribe function. */
 export function subscribe(onEvent: (e: GitnetixEvent) => void): () => void {
-  if (isLocal) {
+  if (isLocal || relay !== null) {
     let unlisten: (() => void) | null = null;
     let cancelled = false;
     import("@tauri-apps/api/event").then(({ listen }) =>

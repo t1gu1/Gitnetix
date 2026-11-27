@@ -22,6 +22,8 @@ serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+# The phone app reaches its computer from anywhere through the Gitnetix relay (remote.rs).
+gitnetix-relay.workspace = true
 
 # The engine runs on desktop. The mobile build is a remote control that talks
 # to a desktop (or headless) Gitnetix over the companion API.

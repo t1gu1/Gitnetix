@@ -44,6 +44,8 @@ pub struct SyncState {
     pub policies: BTreeMap<String, Policies>,
     /// Live updates on this computer (live.rs), and by project id the webhook made for it.
     pub live: bool,
+    /// Paired phones may reach this computer through the relay (phone.rs).
+    pub phones: bool,
     pub hooks: BTreeMap<String, crate::live::Hook>,
     /// Daily backups turned off on this computer (backup.rs); on by default.
     pub backups_off: bool,
@@ -166,7 +168,7 @@ fn signed_out() -> Error {
 }
 
 /// The server's answer, its refusals as the app's errors: 401 asks for a sign-in, 402 for a plan.
-async fn answer(res: reqwest::Response) -> Result<Value> {
+pub(crate) async fn answer(res: reqwest::Response) -> Result<Value> {
     let status = res.status().as_u16();
     let v: Value = res.json().await.unwrap_or(Value::Null);
     if status < 300 {

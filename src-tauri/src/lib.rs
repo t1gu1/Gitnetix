@@ -1,6 +1,7 @@
 //! Tauri shell. On desktop it hosts the engine and exposes one `rpc`
 //! command plus an event stream. On iOS/Android it ships the same UI in
-//! remote mode: the web layer talks to a desktop over the companion API.
+//! remote mode: the web layer talks to a desktop over the companion API,
+//! or from anywhere through the Gitnetix relay (remote.rs).
 
 use tauri::webview::{PermissionKind, PermissionResponse};
 
@@ -8,6 +9,9 @@ use tauri::webview::{PermissionKind, PermissionResponse};
 mod artifact;
 #[cfg(desktop)]
 mod mic;
+// Built by desktop tests too, so a desktop build checks it compiles.
+#[cfg(any(mobile, test))]
+mod remote;
 
 #[cfg(desktop)]
 mod desktop {
@@ -363,7 +367,9 @@ mod desktop {
         // The login shell's PATH first, which may hold the CLI the resumed runs use.
         tauri::async_runtime::spawn(async move {
             gitnetix_core::project_commands::login_dirs().await;
-            resume_k.agents.resume_interrupted()
+            resume_k.agents.resume_interrupted();
+            // Live updates and phones from anywhere go back on the relay when on.
+            gitnetix_core::live::wake(&resume_k);
         });
         let server_k = k.clone();
         let assets = app.asset_resolver();
@@ -403,8 +409,10 @@ mod desktop {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    // Before anything async: Tauri runs its tasks there, kept until the app quits.
+    // Before anything async: Tauri runs its tasks there, kept until the app quits. The phone app keeps Tauri's own.
+    #[cfg(desktop)]
     let rt = gitnetix_core::runtime().expect("async runtime");
+    #[cfg(desktop)]
     tauri::async_runtime::set(rt.handle().clone());
     // Before the window opens: the compositor reads the desktop file when the window first shows.
     #[cfg(target_os = "linux")]
@@ -435,7 +443,10 @@ pub fn run() {
 
     // The pairing screen scans the desktop's QR code with the phone camera.
     #[cfg(mobile)]
-    let builder = builder.plugin(tauri_plugin_barcode_scanner::init());
+    let builder = builder
+        .plugin(tauri_plugin_barcode_scanner::init())
+        .setup(remote::setup)
+        .invoke_handler(tauri::generate_handler![remote::relay_pair, remote::relay_sign_in_poll, remote::relay_rpc, remote::relay_forget]);
 
     let app = builder.build(tauri::generate_context!()).expect("error while running Gitnetix");
     #[cfg(desktop)]

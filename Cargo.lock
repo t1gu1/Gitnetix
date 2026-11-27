@@ -1855,6 +1855,7 @@ dependencies = [
  "cairo-rs",
  "cpal",
  "gitnetix-core",
+ "gitnetix-relay",
  "gitnetix-server",
  "objc2-app-kit",
  "objc2-foundation",
@@ -1890,6 +1891,7 @@ dependencies = [
  "dunce",
  "flate2",
  "futures-util",
+ "gitnetix-relay",
  "hkdf",
  "hmac",
  "keyring",
@@ -1911,6 +1913,25 @@ dependencies = [
  "transcribe-cpp",
  "uuid",
  "windows-registry",
+]
+
+[[package]]
+name = "gitnetix-relay"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "futures-util",
+ "getrandom 0.3.4",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "snow",
+ "tokio",
+ "tokio-stream",
+ "tokio-tungstenite",
+ "tower-http",
+ "url",
 ]
 
 [[package]]
@@ -4732,6 +4753,22 @@ name = "smallvec"
 version = "1.16.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "5b3dc8af474f516a851ff4bd12db780f948b9250ad37211e4eec0bccea54e01b"
+
+[[package]]
+name = "snow"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "599b506ccc4aff8cf7844bc42cf783009a434c1e26c964432560fb6d6ad02d82"
+dependencies = [
+ "blake2",
+ "chacha20poly1305",
+ "curve25519-dalek",
+ "getrandom 0.3.4",
+ "ring",
+ "rustc_version",
+ "sha2",
+ "subtle",
+]
 
 [[package]]
 name = "socket2"

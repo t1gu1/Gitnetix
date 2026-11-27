@@ -1,17 +1,18 @@
 //! Live updates: this computer stays on the Gitnetix relay, and GitHub webhooks for its projects reach it there, so pull
 //! requests, checks and pushes show without waiting for the next poll. The server only passes on "hook X fired event
-//! Y": Gitnetix reads what changed itself, with its own GitHub sign-in.
+//! Y": Gitnetix reads what changed itself, with its own GitHub sign-in. Paired phones reach this computer on the same
+//! socket (phone.rs), since the server allows one per device.
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
-use futures_util::StreamExt;
+use futures_util::{SinkExt, StreamExt};
 use reqwest::Method;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Notify};
 use tokio_tungstenite::tungstenite::{self, client::IntoClientRequest, Message};
 
 use crate::error::{Error, Result};
@@ -38,24 +39,26 @@ pub struct Hook {
 
 /// What the relay task works from: it lives past the call that started it, so it can't hold the store.
 struct Live {
+    /// Live updates or phones want the socket.
     on: bool,
     connected: bool,
-    /// The server removed this computer (revoked elsewhere): the next sync turns live updates off for good.
-    revoked: bool,
     /// Server hook id → project id.
     hooks: BTreeMap<String, String>,
 }
 
-static LIVE: Mutex<Live> = Mutex::new(Live { on: false, connected: false, revoked: false, hooks: BTreeMap::new() });
+static LIVE: Mutex<Live> = Mutex::new(Live { on: false, connected: false, hooks: BTreeMap::new() });
 static RUNNING: AtomicBool = AtomicBool::new(false);
+/// Wakes the relay task when the socket is no longer wanted, instead of at the next message.
+static WAKE: Notify = Notify::const_new();
 
-fn stored_host() -> Option<(String, String)> {
+/// This computer as a host of the account: its device id and the token that opens the relay.
+pub(crate) fn stored_host() -> Option<(String, String)> {
     let v: Value = serde_json::from_str(&secrets::get(DEVICE).ok()??).ok()?;
     Some((v["id"].as_str()?.into(), v["token"].as_str()?.into()))
 }
 
 /// This computer as a host of the account, made once.
-async fn host() -> Result<String> {
+pub(crate) async fn host() -> Result<String> {
     if let Some((id, _)) = stored_host() {
         return Ok(id);
     }
@@ -145,6 +148,20 @@ pub async fn set(k: &Gitnetix, on: bool) -> Result<Value> {
     Ok(status(k))
 }
 
+/// The relay socket up while live updates or phones need it, down otherwise.
+pub fn wake(k: &Gitnetix) {
+    if k.store.read(|c| c.account.live || c.account.phones) {
+        start(k);
+    } else {
+        LIVE.lock().unwrap().on = false;
+        WAKE.notify_one();
+    }
+}
+
+pub(crate) fn is_connected() -> bool {
+    LIVE.lock().unwrap().connected
+}
+
 async fn stop(k: &Gitnetix, host: &str) -> Result<()> {
     for h in k.store.read(|c| c.account.hooks.values().cloned().collect::<Vec<_>>()) {
         remove(k, host, &h).await;
@@ -154,7 +171,7 @@ async fn stop(k: &Gitnetix, host: &str) -> Result<()> {
         c.account.hooks.clear();
         Ok(())
     })?;
-    LIVE.lock().unwrap().on = false;
+    wake(k);
     Ok(())
 }
 
@@ -175,27 +192,37 @@ pub async fn forget(k: &Gitnetix) {
         let _ = account::api(Method::DELETE, &format!("/v1/devices/{host}"), None).await;
         let _ = secrets::delete(DEVICE);
     }
+    crate::phone::forget();
     // shortcut: an open relay socket lasts until the server's sweep drops the deleted device (30 s at most), so a sign-in
     // within that time waits for it; end the session here if that wait ever shows.
     let mut l = LIVE.lock().unwrap();
     l.on = false;
     l.hooks.clear();
+    drop(l);
+    WAKE.notify_one();
 }
 
-/// With each account sync: the relay socket up, and the webhooks in step with the project list. A computer removed from
-/// the account elsewhere stops here instead of making itself a new device.
+/// With each account sync: the relay socket up, and the webhooks in step with the project list.
 pub async fn ensure(k: &Gitnetix) -> Result<()> {
-    if !k.store.read(|c| c.account.live) {
-        LIVE.lock().unwrap().on = false;
-        return Ok(());
+    if k.store.read(|c| c.account.live) {
+        reconcile(k, &host().await?).await?;
     }
-    if std::mem::take(&mut LIVE.lock().unwrap().revoked) {
-        let _ = secrets::delete(DEVICE);
-        return stop(k, "").await;
-    }
-    reconcile(k, &host().await?).await?;
-    start(k);
+    wake(k);
     Ok(())
+}
+
+/// Called when the server removed this computer elsewhere. Live updates and phones stop here, instead of this computer
+/// making itself a new device.
+async fn revoked(k: &Gitnetix) {
+    let _ = secrets::delete(DEVICE);
+    let _ = k.store.write(|c| {
+        c.account.phones = false;
+        Ok(())
+    });
+    let _ = stop(k, "").await;
+    crate::phone::forget();
+    LIVE.lock().unwrap().on = false;
+    let _ = k.events.send(Event::LiveChanged {});
 }
 
 pub fn status(k: &Gitnetix) -> Value {
@@ -212,25 +239,24 @@ fn connected(events: &broadcast::Sender<Event>, now: bool) {
     }
 }
 
-/// Keeps this computer on the relay while live updates are on, coming back after a drop with waits up to a minute.
+/// Keeps this computer on the relay while live updates or phones want it, coming back after a drop with waits up to a
+/// minute.
 fn start(k: &Gitnetix) {
     LIVE.lock().unwrap().on = true;
+    let Some(k) = k.me.upgrade() else { return };
     if RUNNING.swap(true, Ordering::SeqCst) {
         return;
     }
-    let events = k.events.clone();
     tokio::spawn(async move {
         let mut wait = 1;
         let mut said = false;
         while LIVE.lock().unwrap().on {
-            let res = session(&events).await;
-            connected(&events, false);
+            let res = session(&k).await;
+            connected(&k.events, false);
             match res {
                 Ok(()) => wait = 1,
                 Err(Error::NotConnected(_)) => {
-                    let mut l = LIVE.lock().unwrap();
-                    l.revoked = true;
-                    l.on = false;
+                    revoked(&k).await;
                     break;
                 }
                 // Once per outage in the log, not once per try.
@@ -247,29 +273,70 @@ fn start(k: &Gitnetix) {
     });
 }
 
-/// One relay connection, until it closes: each webhook notice becomes an event for the UIs.
-async fn session(events: &broadcast::Sender<Event>) -> Result<()> {
+/// One relay connection, until it closes or isn't wanted: each webhook notice becomes an event for the UIs, and phones'
+/// frames go to phone.rs, whose answers go out paced under the relay's limit.
+async fn session(k: &std::sync::Arc<Gitnetix>) -> Result<()> {
     let (_, token) = stored_host().ok_or_else(|| Error::NotConnected("this computer as a host".into()))?;
     let url = format!("{}/v1/relay", account::server().replacen("http", "ws", 1));
     let mut req = url.into_client_request().map_err(|e| Error::Invalid(e.to_string()))?;
     req.headers_mut().insert("authorization", format!("Bearer {token}").parse().map_err(|_| Error::Invalid("device token".into()))?);
-    let (mut ws, _) = match tokio_tungstenite::connect_async(req).await {
+    let (ws, _) = match tokio_tungstenite::connect_async(req).await {
         Ok(c) => c,
         Err(tungstenite::Error::Http(r)) if r.status() == 401 => return Err(Error::NotConnected("this computer was removed from the account".into())),
         Err(e) => return Err(Error::Http(format!("the relay: {e}"))),
     };
-    connected(events, true);
-    while let Some(msg) = ws.next().await {
-        if let Message::Text(text) = msg.map_err(|e| Error::Http(format!("the relay: {e}")))? {
-            if let Some((project_id, event)) = notice(text.as_str()) {
-                let _ = events.send(Event::RemoteChanged { project_id, event });
+    connected(&k.events, true);
+    let (sink, mut stream) = ws.split();
+    let sink = std::sync::Arc::new(tokio::sync::Mutex::new(sink));
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<Vec<u8>>();
+    crate::phone::attach(tx);
+    // Phones' frames go out on their own task, under the relay's limit. A frame waiting for a slow phone to make room
+    // then never stops this loop from reading, including the acknowledgments that make that room.
+    let writer = {
+        let sink = sink.clone();
+        tokio::spawn(async move {
+            let mut pace = gitnetix_relay::Pace::new();
+            while let Some(f) = rx.recv().await {
+                if !crate::phone::room(&f).await {
+                    continue;
+                }
+                pace.wait(f.len()).await;
+                if sink.lock().await.send(Message::Binary(f.into())).await.is_err() {
+                    return;
+                }
             }
+        })
+    };
+    let failed = |e: tungstenite::Error| Error::Http(format!("the relay: {e}"));
+    let res = loop {
+        tokio::select! {
+            msg = stream.next() => match msg {
+                None => break Ok(()),
+                Some(Err(e)) => break Err(failed(e)),
+                Some(Ok(Message::Text(text))) => {
+                    if let Some((project_id, event)) = notice(text.as_str()) {
+                        let _ = k.events.send(Event::RemoteChanged { project_id, event });
+                    }
+                    crate::phone::notice(text.as_str());
+                }
+                Some(Ok(Message::Binary(b))) => {
+                    if let Some(ack) = crate::phone::frame(k, &b) {
+                        if let Err(e) = sink.lock().await.send(Message::Binary(ack.into())).await {
+                            break Err(failed(e));
+                        }
+                    }
+                }
+                Some(Ok(_)) => {}
+            },
+            _ = WAKE.notified() => {}
         }
         if !LIVE.lock().unwrap().on {
-            break;
+            break Ok(());
         }
-    }
-    Ok(())
+    };
+    writer.abort();
+    crate::phone::detach();
+    res
 }
 
 /// A relay notice that a webhook fired: its project, and GitHub's event name.

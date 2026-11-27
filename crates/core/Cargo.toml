@@ -44,6 +44,8 @@ hmac = "0.12"
 flate2 = "1"
 # Live updates (live.rs): this computer's socket on the Gitnetix relay, over the rustls reqwest already uses.
 tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
+# Phones from anywhere (phone.rs) use the end-to-end encrypted channel the phone app shares.
+gitnetix-relay.workspace = true
 
 # Speech to text on the GPU through Metal on Apple Silicon; Intel Macs stay on the CPU, as ggml's Metal backend targets Apple GPUs.
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))'.dependencies]

@@ -1,14 +1,34 @@
 import { useEffect, useRef, useState } from "react";
 
-import { isTauri, remoteFromLink, saveRemote, testRemote, type Remote } from "../api/transport";
+import { isTauri, remoteFromLink, saveRelay, saveRemote, testRemote, type Remote } from "../api/transport";
 import { queryClient } from "../api/hooks";
 import { Icon } from "../components/Icon";
 import { Logo } from "../components/Logo";
 import { Busy, ErrorBox } from "../components/ui";
+import { copyToClipboard } from "../lib/toast";
 import zxingWasm from "zxing-wasm/reader/zxing_reader.wasm?url";
 
 // Serve the decoder from this app, not the library's default CDN: the companion may have no internet.
 const zxingFiles = { locateFile: () => zxingWasm };
+
+/** A computer's QR code for anywhere (gitnetix-relay's `Link`), not its network address. */
+const ANYWHERE = "gitnetix://pair#";
+
+interface SignIn { userCode: string; verificationUri: string; deviceCode: string; interval: number }
+
+/** This phone as the computer lists it. */
+const phoneName = () => (/iPad/.test(navigator.userAgent) ? "iPad" : /iPhone|iPod/.test(navigator.userAgent) ? "iPhone" : /Android/.test(navigator.userAgent) ? "Android phone" : "Phone");
+
+/** GitHub's page in the phone's browser, where the person is signed in to GitHub. */
+const openGitHub = (url: string) => import("@tauri-apps/plugin-opener").then((o) => o.openUrl(url)).catch(() => window.open(url, "_blank", "noopener"));
+
+/** The app's Rust side (src-tauri/src/remote.rs), its refusals as errors. */
+async function relay<T>(cmd: string, args: Record<string, unknown>): Promise<T> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<T>(cmd, args).catch((e: { message?: string }) => {
+    throw new Error(e?.message ?? String(e));
+  });
+}
 
 /**
  * Mobile / browser: connect to a desktop running Gitnetix.
@@ -20,6 +40,9 @@ export function Pair({ onPaired, error, scan, onBack }: { onPaired: () => void; 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | undefined>(error);
   const [scanning, setScanning] = useState(false);
+  // From anywhere, GitHub's code while the phone signs in, and the computer's code it signs in for.
+  const [signIn, setSignIn] = useState<SignIn | null>(null);
+  const scanned = useRef("");
   const cancelled = useRef(false);
   const photo = useRef<HTMLInputElement>(null);
 
@@ -44,7 +67,57 @@ export function Pair({ onPaired, error, scan, onBack }: { onPaired: () => void; 
     }
   };
 
+  /** Pairs through the relay. The first time, the phone signs in with GitHub to the computer's account, then pairs. */
+  const pairAnywhere = async (link: string) => {
+    if (!isTauri) throw new Error("Scan this code from the Gitnetix app. Reaching your computer from anywhere needs the app on your phone.");
+    setBusy(true);
+    try {
+      const r = await relay<{ name?: string; signIn?: SignIn }>("relay_pair", { link, name: phoneName() });
+      if (r.signIn) {
+        scanned.current = link;
+        setSignIn(r.signIn);
+        copyToClipboard(r.signIn.userCode);
+        openGitHub(r.signIn.verificationUri);
+        return;
+      }
+      saveRelay(r.name ?? "");
+      queryClient.clear();
+      onPaired();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!signIn) return;
+    let interval = signIn.interval;
+    let timer: ReturnType<typeof setTimeout>;
+    let stopped = false;
+    const tick = async () => {
+      try {
+        const r = await relay<{ status: string; interval?: number }>("relay_sign_in_poll", { deviceCode: signIn.deviceCode });
+        if (stopped) return;
+        if (r.status === "done") {
+          setSignIn(null);
+          return await pairAnywhere(scanned.current);
+        }
+        if (r.interval) interval = r.interval;
+        timer = setTimeout(tick, interval * 1000);
+      } catch (e) {
+        if (stopped) return;
+        setSignIn(null);
+        setErr((e as Error).message);
+      }
+    };
+    timer = setTimeout(tick, interval * 1000);
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [signIn]);
+
   const pairFromQr = async (content: string) => {
+    if (content.startsWith(ANYWHERE)) return pairAnywhere(content);
     let r: Remote | null = null;
     try {
       r = remoteFromLink(new URL(content));
@@ -105,6 +178,33 @@ export function Pair({ onPaired, error, scan, onBack }: { onPaired: () => void; 
     import("@tauri-apps/plugin-barcode-scanner").then((qr) => qr.cancel());
   };
 
+  if (signIn)
+    return (
+      <div className="ag app">
+        <main className="scroll" style={{ flex: 1, display: "flex", justifyContent: "center", padding: "48px 16px" }}>
+          <div className="col" style={{ width: "100%", maxWidth: 460, gap: 24 }}>
+            <div className="welcome-hero">
+              <Logo size={56} />
+              <div className="col" style={{ gap: 8 }}>
+                <h1>Sign in with GitHub</h1>
+                <p className="muted">Use the GitHub account your computer is signed in to Gitnetix with. This phone pairs once you authorize it.</p>
+              </div>
+            </div>
+            <div className="col conn-wait" style={{ gap: 8 }}>
+              <span className="hint">Enter this code on GitHub (copied to your clipboard), then authorize Gitnetix. Waiting…</span>
+              <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
+                <button type="button" className="btn mono" style={{ fontSize: 18, letterSpacing: 2 }} title="Copy code" onClick={() => copyToClipboard(signIn.userCode)}>
+                  {signIn.userCode}
+                </button>
+                <button type="button" className="btn" onClick={() => openGitHub(signIn.verificationUri)}>Open GitHub</button>
+                <button type="button" className="btn" onClick={() => setSignIn(null)}>Cancel</button>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+
   if (scanning)
     return (
       <div className="scan-view">
@@ -148,6 +248,7 @@ export function Pair({ onPaired, error, scan, onBack }: { onPaired: () => void; 
             <li><span>Under App, press <b>Allow devices on my network</b>.</span></li>
             <li><span>Scan the QR code shown there, or copy its address and pairing token below.</span></li>
           </ol>
+          <p className="hint">Away from your network, open Settings on your computer, then Gitnetix account, and press Show QR code under Your phone from anywhere. Scan that code from here. It needs the Pro plan.</p>
           <div className="field">
             <label htmlFor="pair-url">Address</label>
             <input id="pair-url" className="input mono" inputMode="url" autoCapitalize="off" autoCorrect="off" placeholder="192.168.1.20:7421" value={url} onChange={(e) => setUrl(e.target.value)} />
@@ -177,7 +278,7 @@ export function Pair({ onPaired, error, scan, onBack }: { onPaired: () => void; 
               if (file) scanPhoto(file);
             }}
           />
-          <p className="hint">Traffic is plain HTTP on your local network, protected by the token. Use it on networks you trust, or through a VPN such as Tailscale.</p>
+          <p className="hint">On your network, traffic is plain HTTP protected by the token, so use it on networks you trust. From anywhere, it goes through the Gitnetix relay, encrypted end to end with a key only this phone and your computer hold.</p>
         </form>
       </main>
     </div>

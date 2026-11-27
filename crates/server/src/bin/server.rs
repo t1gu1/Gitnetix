@@ -35,6 +35,8 @@ async fn serve() -> anyhow::Result<()> {
     // The login shell's PATH first, which may hold the CLI they use.
     gitnetix_core::project_commands::login_dirs().await;
     k.agents.resume_interrupted();
+    // Live updates and phones from anywhere go back on the relay when on.
+    gitnetix_core::live::wake(&k);
     tokio::signal::ctrl_c().await?;
     k.agents.shutdown();
     Ok(())

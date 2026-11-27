@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import { renderSVG } from "uqr";
 
 import { useAction, useConfig } from "../api/hooks";
-import { openExternal, rpc } from "../api/transport";
+import { isLocal, openExternal, rpc } from "../api/transport";
 import type { Project } from "../api/types";
 import { Icon } from "../components/Icon";
 import { MenuChoice } from "../components/AgentPicker";
@@ -107,7 +108,7 @@ export function AccountPage({ open }: { open: (id: string, title?: string) => vo
     return (
       <>
         <p className="hint conn-intro">
-          Gitnetix works without an account. With Pro, an account keeps your project list and settings on every computer and backs up your data. Reaching your computer from your phone anywhere is coming soon. Team adds
+          Gitnetix works without an account. With Pro, an account keeps your project list and settings on every computer, backs up your data, and lets your phone reach this computer from anywhere. Team adds
           a shared project list for your company. Your lists, settings and backups are encrypted on your devices, so the Gitnetix server can't read them. The first 7 days are free.
         </p>
         <DeviceSignIn method="account" name="GitHub" site="GitHub" onDone={() => qc.invalidateQueries({ queryKey: ["account"] })} />
@@ -120,6 +121,7 @@ export function AccountPage({ open }: { open: (id: string, title?: string) => vo
       <KeysBox s={s} />
       {s.keys === "unlocked" && s.plan?.id !== "free" && <SyncBox />}
       {s.plan?.id !== "free" && <LiveBox />}
+      {s.plan?.id !== "free" && isLocal && <PhoneBox login={s.user?.login} />}
       {s.keys === "unlocked" && <BackupsBox paid={s.plan?.id !== "free"} />}
       <EnterprisesBox s={s} open={open} />
     </div>
@@ -136,7 +138,7 @@ function AccountBox({ s, open }: { s: AccountStatus; open: (id: string, title?: 
   return (
     <SheetBox className="conn-box" title="Gitnetix account" sub={`@${s.user?.login}`} aside={<button className="btn btn-sm" disabled={signOut.isPending} onClick={() => signOut.mutate({})}>Sign out</button>}>
       <div className="sheet-col">
-        <SheetRow label="Plan" tip="Free is the app alone; Pro adds sync and backups, and soon your phone anywhere; Team is bought for an enterprise and covers its members">
+        <SheetRow label="Plan" tip="Free is the app alone; Pro adds sync, backups and your phone from anywhere; Team is bought for an enterprise and covers its members">
           <span className="sheet-v">
             {plan === "free" ? "Free" : plan === "pro" ? "Pro" : own ? "Team" : "Team, through your enterprise"}
             {s.billing?.status === "trialing" && ", free trial"}
@@ -148,7 +150,7 @@ function AccountBox({ s, open }: { s: AccountStatus; open: (id: string, title?: 
           </SheetRow>
         )}
         {plan === "free" ? (
-          <SheetRow label="Pro" tip="Sync and backups, and soon your phone anywhere. The first subscription starts with 7 free days">
+          <SheetRow label="Pro" tip="Sync, backups and your phone from anywhere. The first subscription starts with 7 free days">
             <button className="btn btn-sm btn-primary" disabled={checkout.isPending} onClick={() => checkout.mutate({ plan: "pro" }, { onSuccess: (r) => openExternal(r.url) })}>
               Subscribe
             </button>
@@ -593,6 +595,88 @@ function LiveBox() {
           ))}
       </div>
     </SheetBox>
+  );
+}
+
+interface Phones {
+  on: boolean;
+  connected: boolean;
+  /** `paired` means it finished pairing here, not only redeemed the code on the server. */
+  phones: { id: string; name: string; platform: string; paired: boolean; connected: boolean; lastSeenAt: string | null }[];
+}
+
+/** Phones paired here reach this computer through the Gitnetix relay, encrypted end to end (crates/core/src/phone.rs). */
+function PhoneBox({ login }: { login?: string }) {
+  const [pairing, setPairing] = useState(false);
+  // While the code shows, the list says when the phone finished pairing.
+  const q = useQuery({ queryKey: ["phones"], queryFn: () => rpc<Phones>("phones.status"), refetchInterval: pairing ? 2_000 : false });
+  const set = useAction<Phones>("phones.set", { invalidate: [["phones"]] });
+  const remove = useAction("phones.remove", { invalidate: [["phones"]], success: "Removed. That phone can't reach this computer any more" });
+  const p = q.data;
+  const paired = p?.phones.filter((ph) => ph.paired).length ?? 0;
+  const before = useRef<number | null>(null);
+  useEffect(() => {
+    if (!pairing) before.current = null;
+    else if (before.current === null) before.current = paired;
+    else if (paired > before.current) {
+      setPairing(false);
+      toast("Paired. Your phone reaches this computer from anywhere", "ok");
+    }
+  }, [pairing, paired]);
+  return (
+    <SheetBox className="conn-box" title="Your phone from anywhere" sub={!p?.on ? "Off" : p.connected ? "On" : "Connecting…"}>
+      <div className="sheet-col">
+        {q.error && <ErrorBox error={q.error} />}
+        <SheetSwitch
+          label="From anywhere"
+          tip="Phones you pair here reach this computer through the Gitnetix relay, on any network. What they send is encrypted on the phone and opened only here, so the server can't read it or send its own commands. Off, paired phones wait until you turn it back on"
+          on={!!p?.on}
+          disabled={!p || set.isPending}
+          flip={() => set.mutate({ on: !p?.on })}
+        />
+        {p?.on && (
+          <SheetRow label="Pair a phone" tip="A QR code to scan from the Gitnetix app on your phone">
+            <button className="btn btn-sm btn-primary" onClick={() => setPairing(true)}>Show QR code</button>
+          </SheetRow>
+        )}
+        {!!p?.phones.length && <SheetLabel tip="Remove any phone you lose">Phones</SheetLabel>}
+        {p?.phones.map((ph) => (
+          <SheetRow key={ph.id} label={ph.name} tip={ph.paired ? "Paired with this computer" : "Scanned the code but didn't finish pairing. Remove it and pair again"}>
+            <span className={`sheet-v${ph.connected ? "" : " none"}`}>{!ph.paired ? "Not finished" : ph.connected ? "Connected" : ph.lastSeenAt ? `Seen ${ago(ph.lastSeenAt)}` : "Not connected yet"}</span>
+            <button className="btn btn-sm btn-ghost" aria-label={`Remove ${ph.name}`} data-tip={`Remove ${ph.name}`} disabled={remove.isPending} onClick={() => remove.mutate({ id: ph.id })}>
+              <Icon name="trash" size={12} />
+            </button>
+          </SheetRow>
+        ))}
+      </div>
+      {pairing && <PairPhone login={login} onClose={() => setPairing(false)} />}
+    </SheetBox>
+  );
+}
+
+/** The QR code the phone app scans. The server's code in it lasts 2 minutes, so a new one shows before it runs out. */
+function PairPhone({ login, onClose }: { login?: string; onClose: () => void }) {
+  const q = useQuery({ queryKey: ["phonePair"], queryFn: () => rpc<{ link: string; expiresIn: number }>("phones.pair"), refetchInterval: 100_000, gcTime: 0, retry: false });
+  return (
+    <Modal title="Pair a phone" sub="from anywhere" onClose={onClose} footer={<button className="btn btn-md" onClick={onClose}>Close</button>}>
+      <div className="col" style={{ gap: 16 }}>
+        <div className="row" style={{ gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>
+          {q.data ? (
+            <div className="phone-qr" style={{ width: 224, flex: "none" }} role="img" aria-label="QR code to pair your phone" dangerouslySetInnerHTML={{ __html: renderSVG(q.data.link) }} />
+          ) : q.error ? (
+            <ErrorBox error={q.error} />
+          ) : (
+            <Loading />
+          )}
+          <ol className="steps" style={{ flex: 1, minWidth: 200 }}>
+            <li><span>Open the Gitnetix app on your phone.</span></li>
+            <li><span>Press Connect by scanning QR code. If the app is already connected to a computer, press More, then Scan pairing QR code.</span></li>
+            <li><span>Sign in with GitHub{login ? ` as @${login}` : ""}, the account this computer uses.</span></li>
+          </ol>
+        </div>
+        <p className="hint">The code works once. A paired phone can do everything this window can, including Git commands, agents and the terminal, so remove a phone you lose. What it sends is encrypted with a key only it and this computer hold, and the Gitnetix server passes it on without reading it.</p>
+      </div>
+    </Modal>
   );
 }
 

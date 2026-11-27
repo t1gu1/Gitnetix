@@ -1,7 +1,7 @@
 import { Activity, type ReactNode, useRef, useState } from "react";
 
 import { useConfig, useEngineEvents, useProjects } from "./api/hooks";
-import { currentRemote, isLocal } from "./api/transport";
+import { currentRelay, currentRemote, isLocal } from "./api/transport";
 import { ContextMenu, type MenuItem } from "./components/ContextMenu";
 import { AgentConsent } from "./components/AgentConsent";
 import { ForkPush } from "./components/ForkPush";
@@ -36,7 +36,7 @@ import { StartSession, Worktrees } from "./screens/Worktrees";
 import { useAccountSync } from "./screens/Account";
 
 export function App() {
-  const [paired, setPaired] = useState(isLocal || !!currentRemote());
+  const [paired, setPaired] = useState(isLocal || !!currentRemote() || currentRelay() !== null);
   if (!paired) return <Pair onPaired={() => setPaired(true)} />;
   return <Engine onUnpair={() => setPaired(false)} />;
 }

@@ -1,0 +1,27 @@
+[package]
+name = "gitnetix-relay"
+version.workspace = true
+edition.workspace = true
+license-file.workspace = true
+description = "End-to-end encrypted channel between a phone and its computer over the Gitnetix relay"
+
+# The computer's side lives in gitnetix-core (phone.rs); the phone app has no engine, so the protocol and the phone's
+# side live here, for both to share.
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+futures-util.workspace = true
+base64 = "0.22"
+url = "2"
+# Only Noise_XXpsk3_25519_ChaChaPoly_BLAKE2s, so the other ciphers and hashes stay out of the build.
+snow = { version = "0.10", default-features = false, features = ["std", "default-resolver", "use-chacha20poly1305", "use-blake2", "use-curve25519", "use-getrandom"] }
+getrandom = "0.3"
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"] }
+
+# examples/phone.rs: a desktop stand-in for the phone app, for tests against a real back-end and computer.
+[dev-dependencies]
+axum = "0.8"
+tokio-stream = { version = "0.1", features = ["sync"] }
+tower-http = { version = "0.6", features = ["cors"] }

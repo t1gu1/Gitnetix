@@ -19,6 +19,7 @@ pub mod limits;
 pub mod live;
 pub mod log;
 pub mod net;
+pub mod phone;
 pub mod project_commands;
 pub mod providers;
 pub mod rpc;
