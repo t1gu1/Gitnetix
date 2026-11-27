@@ -67,6 +67,27 @@ async fn rebases_onto_another_branch_and_keeps_the_target() {
 }
 
 #[tokio::test]
+async fn rebased_onto_a_work_branch_it_sits_under_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    let repo = repo(tmp.path());
+    sh(&repo, &["switch", "-qc", "feat/a"]);
+    commit_file(&repo, "a.txt", "a\n");
+    // feat/b has a commit of its own. feat/c only a copy of feat/a's: the rebase leaves it on feat/a's tip.
+    sh(&repo, &["switch", "-qc", "feat/b", "main"]);
+    commit_file(&repo, "b.txt", "b\n");
+    sh(&repo, &["switch", "-qc", "feat/c", "main"]);
+    commit_file(&repo, "a.txt", "a\n");
+    let (k, pid) = open(tmp.path(), &repo).await;
+    for b in ["feat/b", "feat/c"] {
+        assert_eq!(parent_of(&k, &pid, b).await, "main");
+        let r = rpc::call(&k, "workspace.rebase", json!({ "projectId": pid, "branch": b, "onto": "feat/a" })).await.unwrap();
+        assert_eq!(r["conflicts"], json!([]), "{r:#}");
+        assert_eq!(parent_of(&k, &pid, b).await, "feat/a", "{b}");
+    }
+    assert!(is_ancestor(&repo, "feat/c", "feat/a") && is_ancestor(&repo, "feat/a", "feat/c"));
+}
+
+#[tokio::test]
 async fn rebases_onto_a_branch_only_on_origin() {
     let tmp = tempfile::tempdir().unwrap();
     let repo = repo(tmp.path());

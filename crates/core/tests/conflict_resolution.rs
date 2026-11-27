@@ -163,7 +163,8 @@ async fn ai_resolves_conflicts_and_the_operation_goes_through() {
 
     // A throwaway checkout that won't go (locked from the AI step): the merge, or the rebase and its
     // fast-forward, still land and report done; the leftover folder is only logged.
-    std::fs::write(&script, "#!/bin/sh\ncat >/dev/null\ngit worktree lock \"$(pwd)\" 2>/dev/null\necho resolved locked\n").unwrap();
+    // AI runs outside the repo: the script finds the throwaway checkout among the repo's worktrees.
+    std::fs::write(&script, format!("#!/bin/sh\ncat >/dev/null\ngit -C '{0}' worktree list --porcelain | sed -n 's/^worktree //p' | grep gitnetix- | while read -r w; do git -C '{0}' worktree lock \"$w\"; done 2>/dev/null\necho resolved locked\n", repo.display())).unwrap();
     sh(&repo, &["switch", "-q", "main"]);
     for (into, from, rebase) in [("feat/lz", "feat/ly", false), ("feat/rz", "feat/ry", true)] {
         sh(&repo, &["switch", "-qc", into, "main"]);

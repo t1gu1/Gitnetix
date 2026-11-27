@@ -5,7 +5,7 @@ import { useAction, useAgents, useFiles, useOverview, usePendingBranches, usePro
 import { rpc } from "../api/transport";
 import type { AgentSession, RebaseResult, WorktreeView } from "../api/types";
 import { AgentInput, AgentLog, RequestField, uploads, type Choice, type Upload } from "../components/AgentLog";
-import { limitLabel, shownStatus, STATUS_SHOWN, tasksLabel, type ShownStatus } from "../lib/agentLog";
+import { limitLabel, shownStatus, STATUS_SHOWN, tasksLabel, yourTurn, type ShownStatus } from "../lib/agentLog";
 import { draftOf, useDraft } from "../lib/drafts";
 import { AgentPicker, MenuChoice, useAgentPick } from "../components/AgentPicker";
 import { firstType, TypePicker, typeOfName, withType } from "../components/BranchTypes";
@@ -168,7 +168,8 @@ export function Worktrees({ route }: { route: { key?: string } }) {
                 {g.items.map((r) => {
                   const [shown, cls] = STATUS_SHOWN[r.status];
                   const label = r.status === "limited" && r.agent?.limit ? limitLabel(r.agent.limit) : shown;
-                  const bg = r.status === "running" && r.agent?.tasks?.length ? `${tasksLabel(r.agent.tasks)} in the background` : "";
+                  // Waiting for you too, while its background work goes on.
+                  const bg = r.agent?.status === "running" && r.agent.tasks?.length ? `${tasksLabel(r.agent.tasks)} in the background` : "";
                   const sub = !r.wt ? "Directory removed" : bg || r.agent?.request.split("\n")[0];
                   const more = `More actions for ${r.branch}`;
                   const show = `Show ${r.branch} in the workspace`;
@@ -428,7 +429,7 @@ function Detail({ r, menu, onMenuClose }: { r: Row; menu?: { x: number; y: numbe
               disabled={!a && !r.wt}
               pending={msg.isPending || start.isPending || reserved.pending}
               picker={a?.ai ? <AgentPicker value={a.ai} onChange={(p) => configure.mutate({ id: a.id, ...p })} compact /> : !a && r.wt && <AgentPicker value={pick} onChange={setPick} compact />}
-              placeholder={busy ? "Agent is working… a message now waits for it to finish" : a?.limit ? "Stopped at a usage limit… a message continues the agent now" : a ? `Message the agent on ${r.branch}…` : "Start a session: describe what the agent should do…"}
+              placeholder={a?.status === "running" && yourTurn(a.lines) ? "Reply to the agent… it answers now, its background work goes on" : busy ? "Agent is working… a message now waits for it to finish" : a?.limit ? "Stopped at a usage limit… a message continues the agent now" : a ? `Message the agent on ${r.branch}…` : "Start a session: describe what the agent should do…"}
             />
           </>
         )}

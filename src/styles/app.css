@@ -5872,6 +5872,11 @@ button.picker-act {
   margin: 8px 12px 0;
   padding: 10px 8px 10px 14px;
 }
+/* The subagent asking, above what it asks. */
+.ag-ask-by {
+  font-size: 11.5px;
+  color: var(--muted);
+}
 /* Allow and Refuse: one width, so the pair reads as one choice. */
 .ag-ask-actions .btn {
   min-width: 88px;
@@ -5979,6 +5984,116 @@ button.picker-act {
   background: var(--fg);
 }
 .ag-bg-hint {
+  font-size: 11.5px;
+  color: var(--faint);
+}
+/* A subagent waiting on you to allow an action (its card is above): a waiting agent is Warn. */
+.ag-bg-asks {
+  font-family: var(--sans);
+  color: var(--warn-fg);
+}
+/* A subagent's name opens its work under it. */
+.ag-bg-open {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.ag-bg-open > svg {
+  flex: none;
+  color: var(--faint);
+}
+.ag-bg-open:hover > svg {
+  color: var(--fg);
+}
+.ag-bg-task > .ag-sub-work {
+  grid-column: 2 / -1;
+  max-height: 360px;
+  overflow-y: auto;
+  padding: 8px 0 2px;
+  border-top: 1px solid var(--line);
+}
+/* A subagent in the log (agentLog.ts SubBlock): one row where it started, its work under it when opened. */
+.ag-sub {
+  display: flex;
+  flex-direction: column;
+  max-width: 640px;
+  border: 1px solid var(--line);
+  border-radius: var(--r);
+  background: var(--panel);
+  font-size: 12.5px;
+}
+.ag-sub-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  padding: 6px 10px 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+}
+.ag-sub-head > svg {
+  flex: none;
+  color: var(--faint);
+}
+.ag-sub-head:hover > svg {
+  color: var(--fg);
+}
+.ag-sub-what {
+  flex: 1;
+}
+.ag-sub-state {
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 500;
+}
+.ag-sub-meta,
+.ag-sub-now {
+  padding: 0 10px 0 29px;
+  font-size: 11.5px;
+  color: var(--faint);
+}
+.ag-sub-meta {
+  padding-bottom: 6px;
+}
+.ag-sub-now {
+  margin-top: -4px;
+  padding-bottom: 6px;
+  font-family: var(--mono);
+}
+.ag-sub > .ag-sub-work {
+  padding: 8px 10px 10px 29px;
+  border-top: 1px solid var(--line);
+}
+.ag-sub-work {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+.ag-sub-asked {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: var(--muted);
+}
+.ag-sub-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--faint);
+}
+.ag-sub-none {
   font-size: 11.5px;
   color: var(--faint);
 }

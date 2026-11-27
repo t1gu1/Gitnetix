@@ -657,6 +657,13 @@ async fn complete_cli(r: &Resolved, prompt: &str, cwd: Option<&Path>) -> Result<
             if !effort.is_empty() {
                 cmd.args(["--reasoning-effort", &effort]);
             }
+            // No working dir = text in, text out, as for claude. With tools, Copilot spent a whole extra answer searching for
+            // the file the prompt already holds. A tool name that doesn't exist leaves no tools (an empty list leaves them all),
+            // and `-s` keeps the notice Copilot prints about it out of the answer.
+            // shortcut: relies on Copilot 1.0.109 warning, not failing, on an unknown tool name; use a no-tools flag if one comes.
+            if cwd.is_none() {
+                cmd.args(["-s", "--available-tools=none", "--disable-builtin-mcps", "--no-custom-instructions"]);
+            }
             cmd.args(["-p", prompt]);
             false
         }

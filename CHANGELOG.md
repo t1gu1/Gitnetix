@@ -14,6 +14,19 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (App)
+- Conflicts that need no choice are settled without AI, in milliseconds, before AI is asked: lines both sides added at the same place (both kept), changes to lines next to each other, a side that only changed line endings. AI gets the rest, such as a line both sides changed or two additions that declare the same name. A file edited by hand since the conflict appeared goes to AI as it is.
+
+### Changed (App)
+- AI resolves conflicts faster. Claude Code and Copilot now answer each file without tools, MCP servers, hooks or project instructions, which starts them about 2 s sooner and sends a fraction of the tokens. A slow file no longer holds up the next ones. Copilot's commit messages, branch names and pull request texts start the same lean way.
+- An agent started on a new worktree waits for the branch and worktree created hooks to finish before it starts, up to 30 seconds, so it finds the settings and links those hooks set up. When a hook runs longer, the agent starts anyway and its log says so.
+
+### Fixed (App)
+- When an agent in a worktree asks you to choose, its options show as answer buttons more often, instead of the close and merge card. Options listed with bullets, a bold number (`**1.**`) or a question inside one of them now count.
+- Agents get the question layout with every message, not only the first one. Claude Code takes it as a system rule that comes before templates, global skills, skills and CLAUDE.md, so a skill that asks for another reply ending no longer breaks the answer buttons.
+- Rebasing a work branch onto another work branch now makes that branch its parent. Rebasing onto trunk, a release or a commit keeps the existing parent.
+- A file with CRLF line endings resolved by AI no longer ends with an LF line.
+
 ## [0.36.8] - 2026-11-26
 
 ### Fixed (App)

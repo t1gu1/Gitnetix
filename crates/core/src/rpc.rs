@@ -118,7 +118,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("agents.list", "Agent sessions", ""),
     ("agents.get", "One agent session with its log", "id"),
     ("agents.start", "Start an agent on a branch (or main checkout)", "projectId, branch?, request, ticket?, provider?, model?, effort?, permission?, ultracode?, files?"),
-    ("agents.message", "Send a follow-up message to an agent, queued until its run ends while it works; files: [{ name, data (base64) | path }]", "id, text, files?"),
+    ("agents.message", "Send a follow-up message to an agent, queued until its turn ends while it works (at once when its turn is over and only background work goes on); files: [{ name, data (base64) | path }]", "id, text, files?"),
     ("agents.file", "A file sent to an agent, base64 (only from its attachments folder)", "id, path"),
     ("agents.unqueue", "Take a message waiting for the agent's run to end off its queue, when it is still `text` at `index`; returns it", "id, index, text"),
     ("agents.sendNow", "Stop the agent's run and send its queued messages now (Claude Code only: other CLIs can't resume)", "id"),

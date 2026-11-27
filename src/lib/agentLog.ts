@@ -4,14 +4,20 @@ import { clock, plural } from "./format";
 /** A file a turn changed and its added and removed lines, null for a binary file. */
 export type Changed = [path: string, added: number | null, removed: number | null];
 
-/** `at`: when its first line was logged. */
+/** What a subagent was started on (its "agent" line, agents.rs `subagent_started`). */
+export type SubInfo = { description: string; type?: string; prompt?: string; background?: boolean; worktree?: boolean };
+
+/** `at`: when its first line was logged. A subagent ("agent") is one block where it started, with all its lines and how it ended. */
 export type Block = { at?: number } & (
   | { kind: "you"; text: string; files: string[] }
   | { kind: "ai"; text: string }
   | { kind: "steps"; lines: LogLine[] }
   | { kind: "files"; from: string; to: string; files: Changed[]; more: number }
   | { kind: "note" | "ok" | "err" | "wait" | "limit"; text: string }
+  | { kind: "agent"; id: string; info: SubInfo; lines: LogLine[]; end?: "done" | "failed" | "stopped" }
 );
+
+export type SubBlock = Extract<Block, { kind: "agent" }>;
 
 // "✦ " starts a reply; older logs and plain CLIs continue it line by line.
 const REPLY = /^✦ /;
@@ -25,14 +31,40 @@ export function said(msg: string) {
 
 // A new line replaces a session's array, never changes it: each array is grouped once, however often it redraws.
 const grouped = new WeakMap<LogLine[], Block[]>();
+const own = new WeakMap<LogLine[], Block[]>();
 
-/** Group raw log lines into chat blocks: your messages, replies, tool steps, status. Shared per `lines`: read it, don't change it. */
-export function blocks(lines: LogLine[]): Block[] {
-  const done = grouped.get(lines);
+/** Group raw log lines into chat blocks: your messages, replies, tool steps, status. A subagent's lines go in its one block. Shared per `lines`: read it, don't change it. */
+export const blocks = (lines: LogLine[]) => group(lines, grouped, false);
+
+/** A subagent's lines (`SubBlock.lines`) as its own chat blocks. */
+export const subBlocks = (lines: LogLine[]) => group(lines, own, true);
+
+function group(lines: LogLine[], memo: WeakMap<LogLine[], Block[]>, inner: boolean): Block[] {
+  const done = memo.get(lines);
   if (done) return done;
   const out: Block[] = [];
-  grouped.set(lines, out);
+  memo.set(lines, out);
+  const subs = new Map<string, SubBlock>();
   for (const l of lines) {
+    if (l.agent && !inner) {
+      let b = subs.get(l.agent);
+      if (!b) {
+        b = { kind: "agent", id: l.agent, info: { description: "" }, lines: [], at: l.at };
+        subs.set(l.agent, b);
+        // Its row says it started: the agent's "Agent" step before it would say it twice.
+        const steps = lastOwn(out);
+        if (steps?.kind === "steps") {
+          const call = steps.lines.map((s) => /^\s*(Agent|Task)\b/.test(s.text)).lastIndexOf(true);
+          if (call >= 0) steps.lines = steps.lines.filter((_, i) => i !== call);
+          if (!steps.lines.length) out.splice(out.indexOf(steps), 1);
+        }
+        out.push(b);
+      }
+      if (l.kind === "agent") b.info = subInfo(l.text);
+      else if (l.kind === "task") b.end = l.text.startsWith("✓") ? "done" : l.text.startsWith("✕") ? "failed" : "stopped";
+      else b.lines.push(l);
+      continue;
+    }
     const last = out.at(-1);
     switch (l.kind) {
       case "cmd": {
@@ -75,6 +107,30 @@ export function blocks(lines: LogLine[]): Block[] {
   return out;
 }
 
+function subInfo(text: string): SubInfo {
+  try {
+    const i = JSON.parse(text) as Partial<Record<keyof SubInfo, unknown>>;
+    const str = (v: unknown) => (typeof v === "string" ? v : undefined);
+    return { description: str(i.description) ?? "", type: str(i.type), prompt: str(i.prompt), background: i.background === true, worktree: i.worktree === true };
+  } catch {
+    return { description: "" };
+  }
+}
+
+/** The last block that is the agent's own: subagents' blocks sit where they started, wherever their work is now. */
+export function lastOwn(list: Block[]) {
+  for (let i = list.length - 1; i >= 0; i--) if (list[i].kind !== "agent") return list[i];
+}
+
+/** Whether the agent's turn is over: it waits for you, or for you or its background work while that goes on. */
+export const yourTurn = (lines: LogLine[]) => lastOwn(blocks(lines))?.kind === "wait";
+
+/** Where subagent `b` is: ended, else still at work while its run is (`working`) and has it going (in `tasks` when it went to the background). */
+export function subState(b: SubBlock, working: boolean, tasks: AgentTask[]): "running" | "done" | "failed" | "stopped" {
+  if (b.end) return b.end;
+  return working && (!b.info.background || tasks.some((t) => t.id === b.id)) ? "running" : "stopped";
+}
+
 export type Opt = { n: string; label: string };
 /** A question the agent waits on: its letter ("A") when it has one, its text, and its numbered options. */
 export type Question = { id: string; text: string; opts: Opt[] };
@@ -86,17 +142,41 @@ const PICK = /(?<![\w-])(which|prefer|choose|pick|quel(le)?s?|lequel|laquelle|ch
 /** Numbered options ("1. **Foo:** bar") in the agent's last reply, when it now waits for you to pick: one entry per question. */
 export function questions(lines: LogLine[]): Question[] {
   const b = blocks(lines);
-  if (b.at(-1)?.kind !== "wait") return [];
+  if (lastOwn(b)?.kind !== "wait") return [];
   const reply = [...b].reverse().find((x) => x.kind === "ai" || x.kind === "you");
   if (reply?.kind !== "ai") return [];
   const rows = reply.text.split("\n");
+  const out = numbered(rows);
+  return out.length ? out : bulleted(rows);
+}
+
+/** No numbered question: the reply's last bullet list ("- Rename it"), right under a line ending with "?" and followed by no other list, is its options. */
+function bulleted(rows: string[]): Question[] {
+  let fence = false;
+  const items = rows.map((row) => {
+    if (/^\s*```/.test(row)) fence = !fence;
+    // Top-level bullets only: indented ones are details of something above. `*` needs a space after it, so "**Bold**" is no bullet.
+    return fence ? null : (/^[-*•]\s+(.+)$/.exec(row)?.[1] ?? null);
+  });
+  let end = items.length - 1;
+  while (end >= 0 && items[end] === null) end--;
+  if (end < 0 || rows.slice(end + 1).some((r) => /^\s*(\d+[.)]|[-*•])\s/.test(r))) return [];
+  let start = end;
+  while (start > 0 && items[start - 1] !== null) start--;
+  const opts = items.slice(start, end + 1).map((x, i) => ({ n: String(i + 1), label: x!.replace(/\*\*|`/g, "") }));
+  const intro = (rows.slice(0, start).filter((r) => r.trim()).at(-1) ?? "").replace(/\*\*|`/g, "").replace(/^\s*#+\s*/, "").trim();
+  if (!/\?$/.test(intro) || opts.every((o) => o.label.includes("?"))) return [];
+  return [{ id: /^([A-Z])[.)]\s/.exec(intro)?.[1] ?? "", text: intro, opts }];
+}
+
+function numbered(rows: string[]): Question[] {
   // A list starts at "1." and runs while the numbers follow; lines between items (sub-bullets) are skipped.
   const lists: { start: number; end: number; opts: Opt[] }[] = [];
   let fence = false;
   rows.forEach((row, i) => {
     if (/^\s*```/.test(row)) fence = !fence;
-    // The number may sit inside the bold: "**1. Foo** bar".
-    const m = fence ? null : /^\s*(?:\*\*)?(\d+)[.)]\s+(.+)$/.exec(row);
+    // The number may sit inside the bold: "**1. Foo** bar", "**1.** Foo".
+    const m = fence ? null : /^\s*(?:\*\*)?(\d+)[.)](?:\*\*)?\s+(.+)$/.exec(row);
     if (!m) return;
     const opt = { n: m[1], label: m[2].replace(/\*\*|`/g, "") };
     const last = lists.at(-1);
@@ -108,8 +188,9 @@ export function questions(lines: LogLine[]): Question[] {
   });
   const found = lists.map((l, k) => {
     const final = k === lists.length - 1;
-    // Items that are questions ("What text? …") ask you to answer each one, not to pick one.
-    const ask = !l.opts.some((o) => o.label.includes("?"));
+    // Items that are all questions ("What text? …") ask you to answer each one, not to pick one. One option asking
+    // something ("Rename it. To what?") is still an option.
+    const ask = !l.opts.every((o) => o.label.includes("?"));
     // A plain list (steps, findings, changes) is not a question: only offer it when the text around it asks you to pick.
     // The intro may be bold or a heading: "**A. Which one?**".
     const intro = (rows.slice(0, l.start).filter((r) => r.trim()).at(-1) ?? "").replace(/\*\*|`/g, "").replace(/^\s*#+\s*/, "").trim();
@@ -151,9 +232,16 @@ export const STATUS_SHOWN: Record<ShownStatus | "idle", [string, string]> = {
   idle: ["No agent", "faint"],
 };
 
-/** A session a usage limit holds is "limited". A worktree run that ended with its close options showing (no question, its branch `b` known) is done, even with nothing to merge. */
+/** A session a usage limit holds is "limited". A worktree run that ended with its close options showing (no question, its branch `b` known) is done, even with nothing to merge.
+ * A run whose turn ended on questions while its background work goes on waits for you. */
 export const shownStatus = (s: AgentSession, b?: unknown): ShownStatus =>
-  s.status === "waiting" && s.limit ? "limited" : s.status === "waiting" && s.worktree && !!b && !questions(s.lines).length ? "done" : s.status;
+  s.status === "running" && questions(s.lines).length
+    ? "waiting"
+    : s.status === "waiting" && s.limit
+      ? "limited"
+      : s.status === "waiting" && s.worktree && !!b && !questions(s.lines).length
+        ? "done"
+        : s.status;
 
 /** A usage limit in a few words: when the agent continues, or why it waits for you. */
 export const limitLabel = (l: AgentLimit) => (l.continueAt ? `Continues at ${clock(l.continueAt)}` : l.credits ? "Out of credits" : "Usage limit reached");
@@ -224,12 +312,12 @@ export function folds(list: Block[], working: boolean): Map<number, Fold> {
     let steps = -1;
     for (let i = start; i < end; i++) {
       if (list[i].kind === "ai") reply = i;
-      else if (list[i].kind === "steps") steps = i;
+      else if (list[i].kind === "steps" || list[i].kind === "agent") steps = i;
     }
     // The last reply stays out, and what came after it: a CLI's stderr may close the run after its answer.
     const to = reply >= 0 ? reply : steps + 1;
     const inner = list.slice(start, Math.max(start, to));
-    if (!inner.some((b) => b.kind === "ai" || b.kind === "steps")) return;
+    if (!inner.some((b) => b.kind === "ai" || b.kind === "steps" || b.kind === "agent")) return;
     const from = list[start - 1]?.at ?? list[start].at;
     const last = list[end - 1].at;
     out.set(start, {

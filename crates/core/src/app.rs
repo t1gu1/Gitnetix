@@ -13,6 +13,7 @@ use tokio::sync::{broadcast, OnceCell};
 
 use crate::agents::{AgentManager, AgentSession, AgentStatus, LogLine, StartArgs, StudyCheckout, TicketStudy};
 use crate::ai::{self, Resolved};
+use crate::auto_resolve;
 use crate::cache::{key_of, CommitCache, LastCache, ViewCache};
 use crate::dictation::Audio;
 use crate::error::{Error, Result};
@@ -3138,8 +3139,9 @@ impl Gitnetix {
         self.store.read(|c| c.ui.spoken_language.clone().unwrap_or_else(|| c.ui.language.clone()))
     }
 
-    /// `cwd` only when the AI must work in the repo (conflicts). Without it the CLI starts lean (no MCP, hooks or
-    /// CLAUDE.md), ~1.5 s sooner: the prompt already holds the diff or commits. Agents still read CLAUDE.md, in their worktree.
+    /// `cwd` only when the AI must work in the repo. Without it the CLI starts lean (no tools, MCP, hooks or CLAUDE.md),
+    /// ~2 s sooner and on a fraction of the tokens: the prompt already holds the diff, commits or conflicted file.
+    /// Agents still read CLAUDE.md, in their worktree.
     async fn ask(&self, task: &str, t: &Template, vars: BTreeMap<String, String>, lang: &str, cwd: Option<&Path>) -> Result<String> {
         let r = self.route(task, Some(t))?;
         let prompt = templates::render(t, &vars, &self.gen_lang(lang));
@@ -4670,10 +4672,13 @@ impl Gitnetix {
         let target = self.base_of(p, branch, &default).await;
         let base = match onto {
             Some(o) => {
+                let shared = |b: &str| b == default || b.starts_with("release/") || is_trunk(b) || p.releases.iter().any(|r| r.branch == b);
                 // A work branch's target follows its history unless given: pin it, or landing on `o` would move it there.
                 let given = p.branches.get(branch).is_some_and(|m| m.parent.is_some() || m.release.is_some());
-                let shared = branch == default || branch.starts_with("release/") || is_trunk(branch) || p.releases.iter().any(|r| r.branch == branch);
-                if o != target && !given && !shared {
+                if !shared(branch) && !shared(o) && matches!(git.branch_rev(o).await, Ok(Some(_))) {
+                    // Onto another work branch: now built on it, it sits under it (its tip can be that branch's own).
+                    self.set_parent(&p.id, branch, o)?;
+                } else if o != target && !given && !shared(branch) {
                     self.set_parent(&p.id, branch, &target)?;
                 }
                 o.to_string()
@@ -4824,6 +4829,32 @@ impl Gitnetix {
         out
     }
 
+    /// Conflicted file `path` in `git`'s checkout with every conflict settled by [`auto_resolve`], in milliseconds:
+    /// its index versions merged again, keeping what git leaves to the user when no choice is needed. None when a
+    /// conflict needs AI, the file has no base version (both sides added it), or it is no longer what git wrote.
+    async fn resolve_without_ai(git: &Git, path: &str) -> Option<String> {
+        let content = std::fs::read_to_string(git.cwd().join(path)).ok()?;
+        let lines: Vec<&str> = content.lines().collect();
+        let conflicts = real_conflicts(&lines, &sides_of(git, path).await);
+        let [head, base, incoming] = [2, 1, 3].map(|stage| format!(":{stage}:{path}"));
+        let size = format!("--marker-size={}", auto_resolve::MARKER);
+        // Histogram, as git's own merge: the same conflicts, so each side of the file can be checked against them.
+        let args = ["merge-file", "-p", "-q", "--diff3", "--diff-algorithm=histogram", &size, "--object-id", &head, &base, &incoming];
+        // Exits with the number of conflicts; a missing version or an older git says why on stderr.
+        let (merged, err) = match git.try_run(&args).await {
+            Ok((_, merged, err)) => (merged, err),
+            Err(e) => (String::new(), e.to_string()),
+        };
+        if !err.trim().is_empty() {
+            crate::log::info(format!("Left {path} to AI, git could not merge it again: {}", err.trim()));
+            return None;
+        }
+        let out = auto_resolve::resolve(&lines, &conflicts, &merged)?;
+        crate::log::info(format!("Resolved {path} without AI: none of its conflicts needed a choice"));
+        // `lines()` drops the `\r`: a CRLF file keeps its line endings.
+        Some(out.join(if content.contains("\r\n") { "\r\n" } else { "\n" }))
+    }
+
     /// AI's take on conflicted file `path` in `git`'s checkout: the change from `ours` brought onto `theirs`.
     /// AI sees the whole file and answers with edits, not the file: a big file would take minutes to
     /// write back. Edits go anywhere, as resolving may take lines outside the conflicts (a name both
@@ -4861,7 +4892,7 @@ impl Gitnetix {
             vars.insert("ours".into(), ours.to_string());
             vars.insert("theirs".into(), theirs.to_string());
             vars.insert("why".into(), why.clone());
-            let answer = self.ask("conflict", &t, vars, "en", Some(git.cwd())).await?;
+            let answer = self.ask("conflict", &t, vars, "en", None).await?;
             match resolve_answer(&lines, &conflicts, &answer) {
                 // `lines()` drops the `\r`: a CRLF file keeps its line endings.
                 Ok(out) => return Ok(out.join(if content.contains("\r\n") { "\r\n" } else { "\n" })),
@@ -4880,7 +4911,7 @@ impl Gitnetix {
     async fn write_resolution(git: &Git, path: &str, content: &str) -> Result<()> {
         let mut body = content.to_string();
         if !body.ends_with('\n') {
-            body.push('\n');
+            body.push_str(if body.contains("\r\n") { "\r\n" } else { "\n" });
         }
         not_a_link(&git.cwd().join(path))?;
         std::fs::write(git.cwd().join(path), body)?;
@@ -4900,7 +4931,7 @@ impl Gitnetix {
     /// The conflict template's AI asked `body` until `valid` takes an answer, `tries` in all; `{why}` in
     /// the body asked again says why the last answer was turned down. An AI that fails to answer (a
     /// network hiccup, a busy model) is asked again a moment later.
-    async fn ask_until<T>(&self, p: &Project, git: &Git, body: &str, vars: BTreeMap<String, String>, tries: usize, valid: impl Fn(&str) -> std::result::Result<T, String>) -> Result<T> {
+    async fn ask_until<T>(&self, p: &Project, body: &str, vars: BTreeMap<String, String>, tries: usize, valid: impl Fn(&str) -> std::result::Result<T, String>) -> Result<T> {
         // The template's AI and rules, asked a question its text-resolving body doesn't fit.
         let mut t = self.template("conflict", None, Some(&p.id))?;
         let mut why = String::new();
@@ -4908,7 +4939,7 @@ impl Gitnetix {
             t.body = if why.is_empty() { body.to_string() } else { format!("{body}\n\nYour last answer could not be used: {{why}}. Answer again.") };
             let mut vars = vars.clone();
             vars.insert("why".into(), why.clone());
-            match self.ask("conflict", &t, vars, "en", Some(git.cwd())).await {
+            match self.ask("conflict", &t, vars, "en", None).await {
                 Ok(answer) => match valid(&answer) {
                     Ok(v) => return Ok(v),
                     Err(e) => {
@@ -4952,7 +4983,7 @@ impl Gitnetix {
         vars.insert("deleted".into(), deleted_by.to_string());
         vars.insert("diff".into(), diff);
         vars.insert("first".into(), first.unwrap_or_default().to_string());
-        let fix = match self.ask_until(p, git, &body, vars, tries, |a| pick_word(a, ["keep", "delete"])).await? {
+        let fix = match self.ask_until(p, &body, vars, tries, |a| pick_word(a, ["keep", "delete"])).await? {
             0 => Fix::Keep,
             _ => Fix::Delete,
         };
@@ -4991,15 +5022,16 @@ impl Gitnetix {
         vars.insert("incoming_log".into(), incoming_log);
         vars.insert("current_log".into(), current_log);
         vars.insert("first".into(), first.unwrap_or_default().to_string());
-        let stage = if self.ask_until(p, git, &body, vars, tries, |a| pick_word(a, ["incoming", "current"])).await? == 0 { 3 } else { 2 };
+        let stage = if self.ask_until(p, &body, vars, tries, |a| pick_word(a, ["incoming", "current"])).await? == 0 { 3 } else { 2 };
         crate::log::info(format!("AI kept the {} version of {path} ({} onto {theirs})", if stage == 3 { "incoming" } else { "current" }, ours));
         Ok(Fix::Side(stage))
     }
 
     /// AI's fix for conflicted `path`, by what the index holds of it: text with conflict markers gets
-    /// resolved; changed on one side and deleted on the other, it stays or goes; changed on both sides
-    /// with no markers to work from (binary, symlink), one side's version stays. What both sides deleted
-    /// goes, what one side added stays (the halves of a file both sides renamed).
+    /// resolved, without AI when none of its conflicts needs a choice; changed on one side and deleted on
+    /// the other, it stays or goes; changed on both sides with no markers to work from (binary, symlink),
+    /// one side's version stays. What both sides deleted goes, what one side added stays (the halves of a
+    /// file both sides renamed).
     async fn fix_for(&self, p: &Project, git: &Git, path: &str, ours: &str, theirs: &str) -> Result<Fix> {
         let stages = git.conflict_stages(path).await?;
         let marked = || std::fs::read_to_string(git.cwd().join(path)).is_ok_and(|c| c.contains("<<<<<<<"));
@@ -5007,7 +5039,10 @@ impl Gitnetix {
             [1] => Ok(Fix::Delete),
             [2] | [3] => Ok(Fix::Keep),
             [1, 2 | 3] => self.keep_or_delete(p, git, path, ours, theirs, None).await,
-            _ if marked() => self.propose_resolution(p, git, path, ours, theirs).await.map(Fix::Text),
+            _ if marked() => match Self::resolve_without_ai(git, path).await {
+                Some(text) => Ok(Fix::Text(text)),
+                None => self.propose_resolution(p, git, path, ours, theirs).await.map(Fix::Text),
+            },
             [.., 2, 3] => self.pick_side(p, git, path, ours, theirs, None).await,
             _ => Err(Error::Invalid("no conflict markers to resolve".into())),
         }
@@ -5050,7 +5085,7 @@ impl Gitnetix {
             vars.insert("after".into(), lines[e..(e + AROUND).min(lines.len())].join("\n"));
             vars.insert("n".into(), (i + 1).to_string());
             vars.insert("count".into(), conflicts.len().to_string());
-            let new = self.ask_until(p, git, body, vars, 3, conflict_answer).await?;
+            let new = self.ask_until(p, body, vars, 3, conflict_answer).await?;
             out.splice(s..e, new);
         }
         crate::log::info(format!("AI resolved {path} one conflict at a time, in the second pass"));
@@ -5073,15 +5108,22 @@ impl Gitnetix {
                 });
             }
         };
-        let answers: Vec<(String, Result<Fix>)> = stream::iter(files.to_vec())
-            .map(|f| async move {
-                let r = self.fix_for(p, git, &f, ours, theirs).await;
-                counted(&r);
-                (f, r)
-            })
-            .buffered(3)
-            .collect()
-            .await;
+        // Unordered: a slow file holds up no other, the next one starts as soon as any answer is in. Back in `files`' order after.
+        let in_order = |mut a: Vec<(String, Result<Fix>)>| {
+            a.sort_by_key(|(f, _)| files.iter().position(|x| x == f));
+            a
+        };
+        let answers: Vec<(String, Result<Fix>)> = in_order(
+            stream::iter(files.to_vec())
+                .map(|f| async move {
+                    let r = self.fix_for(p, git, &f, ours, theirs).await;
+                    counted(&r);
+                    (f, r)
+                })
+                .buffer_unordered(3)
+                .collect()
+                .await,
+        );
         // What the first pass could not settle gets a second one, which has to.
         let again: Vec<String> = answers.iter().filter(|(_, r)| r.is_err()).map(|(f, _)| f.clone()).collect();
         if again.is_empty() {
@@ -5091,21 +5133,23 @@ impl Gitnetix {
         if let Some(c) = ctl {
             c.report(|run| run.second_pass = again.clone());
         }
-        let answers = stream::iter(answers)
-            .map(|(f, r)| async move {
-                let r = match r {
-                    Err(e) => {
-                        let r = self.settle(p, git, &f, ours, theirs, &e.to_string()).await;
-                        counted(&r);
-                        r
-                    }
-                    done => done,
-                };
-                (f, r)
-            })
-            .buffered(3)
-            .collect()
-            .await;
+        let answers = in_order(
+            stream::iter(answers)
+                .map(|(f, r)| async move {
+                    let r = match r {
+                        Err(e) => {
+                            let r = self.settle(p, git, &f, ours, theirs, &e.to_string()).await;
+                            counted(&r);
+                            r
+                        }
+                        done => done,
+                    };
+                    (f, r)
+                })
+                .buffer_unordered(3)
+                .collect()
+                .await,
+        );
         if let Some(c) = ctl {
             c.report(|run| run.second_pass.clear());
         }
@@ -7222,13 +7266,17 @@ impl Gitnetix {
             prompt = prompt.replace(&format!("{{{k}}}"), v);
         }
         prompt = prompt.replace("{language}", templates::language_name(&self.gen_lang(&p.gen_lang.commit)));
-        let (ticket, notes) = self.agent_ticket(project_id, &branch, cwd).await;
+        let (ticket, mut notes) = self.agent_ticket(project_id, &branch, cwd).await;
         // Last, so nothing in the ticket is taken for a placeholder.
         prompt = insert_ticket(&prompt, &ticket);
         // Where the agent saves the images and audio it shows: the log reads them from there only.
         let shots = attach_root(cwd).await?.join("shared");
         std::fs::create_dir_all(&shots)?;
-        prompt = format!("{prompt}\n\n{}\n\n{}\n\n{}", templates::CHOICE_FORMAT, templates::share_media(&shots.to_string_lossy()), templates::NO_AI_CREDIT);
+        prompt = format!("{prompt}\n\n{}\n\n{}", templates::share_media(&shots.to_string_lossy()), templates::NO_AI_CREDIT);
+        // The created hooks of a new worktree run alongside: the agent starts once they have set it up.
+        if !hooks::settle(cwd).await {
+            notes.push(LogLine::new("dim", "  ⚠ The hooks were still running after 30 seconds: started without waiting for them"));
+        }
         self.agents.start(StartArgs {
             project_id: project_id.into(),
             branch,
@@ -8171,9 +8219,8 @@ impl Gitnetix {
             let shots = attach_root(&cwd).await?.join("shared");
             std::fs::create_dir_all(&shots)?;
             prompt = format!(
-                "{prompt}\n\n{}\n\n{}\n\n{}\n\n{}",
+                "{prompt}\n\n{}\n\n{}\n\n{}",
                 templates::ticket_study(&folders.join("\n")),
-                templates::CHOICE_FORMAT,
                 templates::share_media(&shots.to_string_lossy()),
                 templates::NO_AI_CREDIT
             );

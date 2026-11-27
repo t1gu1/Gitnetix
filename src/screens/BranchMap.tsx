@@ -484,7 +484,8 @@ export function useAgentOf(pid: string) {
   return (b: BranchView): AgentInfo | undefined => {
     // Off a worktree, the agent works in the main checkout.
     const a = list?.find((x) => (b.worktree ? x.cwd === b.worktree : x.branch === b.name));
-    const state = b.running ? "working" : b.waiting ? (a?.shown === "done" ? "done" : a?.shown === "limited" ? "limit" : "waiting") : undefined;
+    // Running, it may still wait for you: its turn ended on questions while its background work goes on.
+    const state = b.running ? (a?.shown === "waiting" ? "waiting" : "working") : b.waiting ? (a?.shown === "done" ? "done" : a?.shown === "limited" ? "limit" : "waiting") : undefined;
     if (!a && !state) return undefined;
     return { label: a?.label || "Agent", state, row: b.worktree ?? a?.id };
   };

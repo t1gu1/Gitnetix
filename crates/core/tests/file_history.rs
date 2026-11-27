@@ -110,7 +110,9 @@ async fn history_follows_renames_and_blame_names_each_line() {
     assert_eq!(index["lines"].as_array().unwrap().len(), 6, "the staged side's new lines are the index's");
     assert_eq!(line_shas(&index).last(), Some(&zero), "staged, not committed");
     assert_eq!(line_shas(&blame(side(true, true)).await), [&*c1, &*c2, &*c1, &*c2, &*c4], "HEAD");
-    assert_eq!(blame(side(false, true)).await, index, "the unstaged side's old lines are the index's");
+    // Not the whole reply: git stamps the uncommitted entry with the time of each call.
+    let unstaged = blame(side(false, true)).await;
+    assert_eq!((&unstaged["lines"], &unstaged["runs"]), (&index["lines"], &index["runs"]), "the unstaged side's old lines are the index's");
 
     for (m, p, err) in [
         ("workspace.blame", json!({ "projectId": pid, "branch": "--output=x", "mode": "branch", "path": "b.txt" }), "not a branch"),

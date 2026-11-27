@@ -41,7 +41,7 @@ import { Resizer, usePaneWidth } from "../components/Resizer";
 import { ShellPane, TermTabs, useTermView } from "../components/Shell";
 import { Busy, Confirm, EnterHint, ErrorBox, Loading, MarkdownDoc, Modal, repoPath, Route, Seg, Stop, swipeProps } from "../components/ui";
 import { ago, plural, timeLeft } from "../lib/format";
-import { limitLabel, shownStatus, STATUS_SHOWN, tasksLabel } from "../lib/agentLog";
+import { limitLabel, shownStatus, STATUS_SHOWN, tasksLabel, yourTurn } from "../lib/agentLog";
 import { startCleanup, useCleaning } from "../lib/cleanups";
 import { useDraft } from "../lib/drafts";
 import { useIdle } from "../lib/motion";
@@ -2399,7 +2399,7 @@ function RebaseOntoModal({ pid, branch, onto, onClose }: { pid: string; branch: 
   );
 }
 
-/** Replays the checked-out `branch` on top of `onto` (a branch, or a commit's SHA from the commit menu), or of a branch picked here; its target stays. */
+/** Replays the checked-out `branch` on top of `onto` (a branch, or a commit's SHA from the commit menu), or of a branch picked here; its target stays, unless both are work branches: then it sits under `onto`. */
 /** Once it went through: pushed when asked to, then `onChildren` asks about the branches under it. */
 function RebaseOntoBranchModal({ pid, branch, onto, branches, defaultBranch, labelOf, onClose, onChildren }: { pid: string; branch: string; onto?: string; branches: BranchView[]; defaultBranch: string; labelOf: (b: string) => string; onClose: () => void; onChildren: (b: string) => void }) {
   const [picked, setPicked] = useState<string | null>(onto ?? null);
@@ -2412,6 +2412,7 @@ function RebaseOntoBranchModal({ pid, branch, onto, branches, defaultBranch, lab
   const nameOf = (x: string) => (/^[0-9a-f]{40}$/.test(x) ? x.slice(0, 7) : labelOf(x));
   const to = picked ? nameOf(picked) : undefined;
   const upstream = view?.upstream;
+  const stacks = view?.role === "branch" && branches.find((b) => b.name === picked)?.role === "branch";
   const go = async (target: string) => {
     onClose();
     const r = await startRebase(pid, branch, { onto: target, resolve: true });
@@ -2448,7 +2449,7 @@ function RebaseOntoBranchModal({ pid, branch, onto, branches, defaultBranch, lab
     >
       {!onto && <BranchPicker choices={choices} labelOf={labelOf} picked={picked} onPick={setPicked} />}
       <p className="muted" style={{ margin: 0 }}>
-        Replays the commits of {name} on top of {to ?? "the branch picked"}, AI resolving the conflicts on the way.{!view?.checkedOut && " Any it can't resolve put it back as it was."}{parent && <> {name} keeps targeting {labelOf(parent)}.</>}
+        Replays the commits of {name} on top of {to ?? "the branch picked"}, AI resolving the conflicts on the way.{!view?.checkedOut && " Any it can't resolve put it back as it was."}{stacks ? <> {name} then sits under {to}.</> : parent && <> {name} keeps targeting {labelOf(parent)}.</>}
         {upstream && push ? <> Then it is force pushed: anyone with work on it rebases it too. Origin refuses it if it has commits {name} never had.</> : " Already pushed: it then needs a force push."}
       </p>
       {upstream && (
@@ -3017,7 +3018,7 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
             </>
           )}
         </span>
-        {!shell && cur?.status === "running" && <span className="pulse glow-dot" />}
+        {!shell && st === "running" && <span className="pulse glow-dot" />}
         <span className="grow" />
         <Icon name="chevronUp" size={13} />
       </button>
@@ -3126,7 +3127,7 @@ function Terminal({ pid, branch, cwd, worktree, open, setOpen, onCloseWorktree, 
               disabled={leaving}
               pending={start.isPending || reserved.pending || message.isPending}
               picker={!cur ? <AgentPicker value={pick} onChange={setPick} compact /> : cur.ai && <AgentPicker value={cur.ai} onChange={(p) => configure.mutate({ id: cur.id, ...p })} compact />}
-              placeholder={busy ? "Agent is working… a message now waits for it to finish" : cur?.limit ? "Stopped at a usage limit… a message continues the agent now" : cur ? "Reply to the agent…" : "Ask the agent anything…"}
+              placeholder={cur?.status === "running" && yourTurn(cur.lines) ? "Reply to the agent… it answers now, its background work goes on" : busy ? "Agent is working… a message now waits for it to finish" : cur?.limit ? "Stopped at a usage limit… a message continues the agent now" : cur ? "Reply to the agent…" : "Ask the agent anything…"}
             />
           </>
         )}

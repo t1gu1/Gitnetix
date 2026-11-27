@@ -32,17 +32,25 @@ pub enum AgentStatus {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LogLine {
-    /// cmd | ai | ok | dim | err | wait | run | files | limit
+    /// cmd | ai | ok | dim | err | wait | run | files | limit | task | agent (a subagent's start, as JSON)
     pub kind: String,
     pub text: String,
     /// When it was logged, in ms since the Unix epoch. Lines from before timestamps have none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub at: Option<i64>,
+    /// The subagent that logged it, by its CLI task id: the UI shows it under that subagent, not as the agent's own work.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
 }
 
 impl LogLine {
     pub fn new(kind: &str, text: impl Into<String>) -> Self {
-        LogLine { kind: kind.into(), text: text.into(), at: Some(chrono::Utc::now().timestamp_millis()) }
+        LogLine { kind: kind.into(), text: text.into(), at: Some(chrono::Utc::now().timestamp_millis()), agent: None }
+    }
+
+    /// This line, logged by subagent `agent`.
+    fn by(self, agent: &str) -> Self {
+        LogLine { agent: Some(agent.into()), ..self }
     }
 }
 
@@ -65,7 +73,8 @@ pub struct AgentSession {
     /// What the session was started on; follow-ups reuse it.
     #[serde(default)]
     pub ai: Option<Resolved>,
-    /// Messages sent while it works, in order; they go out together when the run ends.
+    /// Messages sent while it works, in order; they go out together when its turn ends while background work goes on
+    /// (`turn_over`), else when the run ends.
     #[serde(default)]
     pub queued: Vec<String>,
     /// The CLI's process while it works. Saved so another Gitnetix on this folder sees the run is still going.
@@ -162,6 +171,9 @@ pub struct Ask {
     pub detail: String,
     /// What the CLI says it does, when it says.
     pub description: String,
+    /// The subagent asking, by its CLI task id; None when the agent itself asks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
     /// Sent back with an allow. Kept out of the UI and the file: a Write's is the whole file.
     #[serde(skip)]
     input: Value,
@@ -187,6 +199,8 @@ struct Seen {
     cut_off: bool,
     /// Its CLI said `init`: what it reports after is this run's.
     started: bool,
+    /// The calls that started a subagent in a worktree of its own (`isolation`), by tool use id: its start line says so.
+    worktrees: HashSet<String>,
 }
 
 #[derive(Default)]
@@ -210,7 +224,8 @@ struct Inner {
     /// there. Dropped, it closes.
     answers: HashMap<String, (u64, mpsc::UnboundedSender<String>)>,
     /// Sessions whose turn gave its result while background work went on: true once one of those tasks ended by itself,
-    /// which runs another turn. Stopping the last one by hand runs none: its stdin closes then (`tasks_listed`).
+    /// which runs another turn. Stopping the last one by hand runs none: its stdin closes then (`tasks_listed`). What you
+    /// send meanwhile goes in at once (`tell`).
     idle: HashMap<String, bool>,
     /// When each session's background tasks were last sent to the UI, in ms: progress goes out at most once a second.
     tasks_sent: HashMap<String, i64>,
@@ -777,10 +792,14 @@ impl AgentManager {
 
     /// Send a follow-up message. A CLI that `resumes` goes on in the same conversation;
     /// other CLIs get a fresh run in the same directory. While the agent
-    /// works, it waits for the run to end (`end_run`).
+    /// works, it waits for the run to end (`end_run`), or for its turn to end when work it left in the background goes on
+    /// (`turn_over`). Once that turn is over, it goes in at once.
     pub fn message(&self, id: &str, text: &str, ai: &Resolved) -> Result<()> {
         let _turn = self.turn.lock().unwrap();
         let s = self.get(id)?;
+        if s.status == AgentStatus::Running && self.tell(id, &[text], text) {
+            return Ok(());
+        }
         if s.status == AgentStatus::Running || s.status == AgentStatus::Paused {
             if let Some(s) = self.inner.lock().unwrap().sessions.get_mut(id) {
                 s.queued.push(text.into());
@@ -1133,6 +1152,11 @@ impl AgentManager {
         }
         cmd.current_dir(cwd);
         let structured = r.provider == "claude";
+        // How to ask, on every run so a follow-up, a compacted conversation or a fresh CLI run keeps it: Claude Code takes it
+        // as system prompt, above templates, skills and CLAUDE.md; the other CLIs have no such flag and get it after the prompt.
+        let said = prompt;
+        let with_format = format!("{prompt}\n\n{}", crate::templates::CHOICE_FORMAT);
+        let prompt = if structured { said } else { with_format.as_str() };
         let copilot = r.provider == "copilot";
         let acp = copilot_acp(r);
         let mut stdin_prompt = true;
@@ -1146,6 +1170,7 @@ impl AgentManager {
         match r.provider.as_str() {
             "claude" => {
                 cmd.args(["-p", "--output-format", "stream-json", "--verbose"]);
+                cmd.args(["--append-system-prompt", crate::templates::CHOICE_FORMAT]);
                 let mode = claude_permission(&r.permission)?;
                 if let Some(m) = mode {
                     cmd.args(["--permission-mode", m]);
@@ -1261,8 +1286,9 @@ impl AgentManager {
                 g.answers.insert(id.to_string(), (run, tx));
             }
             g.seen.remove(id);
+            // Without the format: a retry sends it again through here.
             if let Some(s) = g.sessions.get_mut(id) {
-                s.last_prompt = Some(prompt.to_string());
+                s.last_prompt = Some(said.to_string());
             }
             run
         };
@@ -1308,10 +1334,7 @@ impl AgentManager {
                     if structured {
                         if let Some(o) = out_me.handle_stream_json(&out_id, &l) {
                             outcome = Some(o);
-                            // Work still going in the background runs another turn when it ends, which may ask too.
-                            if out_me.get(&out_id).is_ok_and(|s| s.tasks.is_empty()) {
-                                out_me.close_input(&out_id, run);
-                            }
+                            out_me.turn_ended(&out_id, run);
                         }
                     } else if let Some(st) = acp_state.as_mut() {
                         if let Some(o) = out_me.handle_copilot_acp(&out_id, run, &l, st) {
@@ -1405,6 +1428,10 @@ impl AgentManager {
                 self.tasks_listed(id, &v["tasks"]);
                 None
             }
+            Some("system") if v["subtype"] == "task_started" => {
+                self.subagent_started(id, &v);
+                None
+            }
             Some("system") if v["subtype"] == "task_progress" => {
                 self.task_progress(id, &v);
                 None
@@ -1438,13 +1465,19 @@ impl AgentManager {
                 let mut replied = false;
                 // A sub agent's: its words are a step of the agent's work, not a reply to you.
                 let sub = v["parent_tool_use_id"].is_string();
+                // Which one: its lines show under it. A CLI that doesn't say has them show as the agent's steps.
+                let by = v["agent_id"].as_str().filter(|_| sub);
+                let tag = |l: LogLine| match by {
+                    Some(a) => l.by(a),
+                    None => l,
+                };
                 // The agent's own words: a turn runs again.
                 if !sub {
                     self.inner.lock().unwrap().idle.remove(id);
                 }
                 for block in v["message"]["content"].as_array().into_iter().flatten() {
                     match block["type"].as_str() {
-                        Some("text") if sub => {
+                        Some("text") if sub && by.is_none() => {
                             let text = block["text"].as_str().unwrap_or("").trim();
                             if let Some(first) = text.lines().find(|l| !l.trim().is_empty()) {
                                 self.push(id, LogLine::new("dim", format!("  Subagent {}", first.trim().chars().take(300).collect::<String>())));
@@ -1454,15 +1487,20 @@ impl AgentManager {
                             // One line per reply, blank lines kept, so the UI can render it as Markdown.
                             let text = block["text"].as_str().unwrap_or("").trim();
                             if !text.is_empty() {
-                                self.push(id, LogLine::new("ai", format!("✦ {text}")));
+                                self.push(id, tag(LogLine::new("ai", format!("✦ {text}"))));
                                 replied = true;
                             }
                         }
                         Some("tool_use") => {
                             let name = block["name"].as_str().unwrap_or("tool");
-                            let detail = tool_detail(&block["input"]);
+                            let input = &block["input"];
+                            if input["isolation"] == "worktree" {
+                                if let Some(tid) = block["id"].as_str() {
+                                    self.inner.lock().unwrap().seen.entry(id.into()).or_default().worktrees.insert(tid.into());
+                                }
+                            }
                             let kind = if name == "Bash" { "run" } else { "dim" };
-                            self.push(id, LogLine::new(kind, format!("  {name} {detail}")));
+                            self.push(id, tag(LogLine::new(kind, format!("  {name} {}", tool_detail(input)))));
                         }
                         _ => {}
                     }
@@ -1475,14 +1513,20 @@ impl AgentManager {
             }
             Some("user") => {
                 let sub = v["parent_tool_use_id"].is_string();
+                let by = v["agent_id"].as_str().filter(|_| sub);
                 for block in v["message"]["content"].as_array().into_iter().flatten() {
                     if block["type"] == "tool_result" && block["is_error"] == true {
                         let msg = match &block["content"] {
                             Value::String(s) => s.clone(),
                             other => other.to_string(),
                         };
-                        // A sub agent deals with its own: a step, not an error of the run.
-                        let line = if sub { LogLine::new("dim", format!("  Subagent ✕ {}", tool_error_line(&msg))) } else { LogLine::new("err", format!("✕ {}", tool_error_line(&msg))) };
+                        let err = LogLine::new("err", format!("✕ {}", tool_error_line(&msg)));
+                        // A sub agent deals with its own: an error of its work, not of the run.
+                        let line = match by {
+                            Some(a) => err.by(a),
+                            None if sub => LogLine::new("dim", format!("  Subagent ✕ {}", tool_error_line(&msg))),
+                            None => err,
+                        };
                         self.push(id, line);
                     }
                 }
@@ -1495,6 +1539,7 @@ impl AgentManager {
                     tool: q["display_name"].as_str().or(q["tool_name"].as_str()).unwrap_or("tool").into(),
                     detail: tool_detail(&q["input"]).into(),
                     description: q["description"].as_str().unwrap_or_default().into(),
+                    agent: q["agent_id"].as_str().map(Into::into),
                     input: q["input"].clone(),
                 };
                 if let Some(s) = self.inner.lock().unwrap().sessions.get_mut(id) {
@@ -1629,7 +1674,7 @@ impl AgentManager {
                 };
                 let detail = Some(tool_detail(&call["rawInput"])).filter(|d| !d.is_empty()).unwrap_or(title);
                 // The request's id and options: `answer` picks one.
-                let ask = Ask { id: v["id"].to_string(), tool: tool.into(), detail: detail.into(), description: String::new(), input: json!({ "id": v["id"], "options": p["options"] }) };
+                let ask = Ask { id: v["id"].to_string(), tool: tool.into(), detail: detail.into(), description: String::new(), agent: None, input: json!({ "id": v["id"], "options": p["options"] }) };
                 if let Some(s) = self.inner.lock().unwrap().sessions.get_mut(id) {
                     s.asks.push(ask);
                 }
@@ -1725,6 +1770,82 @@ impl AgentManager {
         tx.send(format!("{line}\n")).map_err(|_| Error::Invalid("The agent's run has ended.".into()))
     }
 
+    /// Run `run` of `id` gave a result. Work it left in the background runs another turn when it ends, which may ask too:
+    /// its stdin stays open meanwhile, and its turn is over (`turn_over`). Without any, stdin closes and the CLI ends.
+    fn turn_ended(&self, id: &str, run: u64) {
+        if self.get(id).is_ok_and(|s| s.tasks.is_empty()) {
+            self.close_input(id, run);
+        } else {
+            self.turn_over(id, run);
+        }
+    }
+
+    /// The turn of run `run` of `id` is over while work it left in the background goes on: the messages queued during the
+    /// turn go in now, as its next one, instead of after that work. Without any, it's your turn, and what you send goes in
+    /// at once (`message`).
+    fn turn_over(&self, id: &str, run: u64) {
+        let _turn = self.turn.lock().unwrap();
+        let queued = {
+            let mut g = self.inner.lock().unwrap();
+            // A newer run took over, or another Gitnetix runs it.
+            if g.answers.get(id).is_none_or(|(n, _)| *n != run) {
+                return;
+            }
+            g.sessions.get_mut(id).map(|s| std::mem::take(&mut s.queued)).unwrap_or_default()
+        };
+        if queued.is_empty() {
+            self.push(id, LogLine::new("wait", "◆ Your turn · its background work goes on"));
+            return self.persist();
+        }
+        let said: Vec<&str> = queued.iter().map(String::as_str).collect();
+        if !self.tell(id, &said, &format!("{}\n\n{QUEUED_NOTE}", queued.join("\n\n"))) {
+            if let Some(s) = self.inner.lock().unwrap().sessions.get_mut(id) {
+                s.queued = queued;
+            }
+            return;
+        }
+        // Saves the emptied queue and has the UI refetch it.
+        self.set_status(id, AgentStatus::Running);
+    }
+
+    /// Write `prompt` into the CLI of `id`'s run as your next message, logging `said` as yours, when its turn is over and
+    /// only work it left in the background goes on. False mid-turn, once its stdin closed, or when another Gitnetix runs
+    /// it. Hold `turn`.
+    fn tell(&self, id: &str, said: &[&str], prompt: &str) -> bool {
+        let tx = {
+            let mut g = self.inner.lock().unwrap();
+            let Some((_, tx)) = g.answers.get(id).filter(|_| g.idle.contains_key(id)) else { return false };
+            let tx = tx.clone();
+            // A turn runs again: stopping the last background task by hand must not close its stdin now.
+            g.idle.remove(id);
+            tx
+        };
+        let line = json!({ "type": "user", "message": { "role": "user", "content": prompt } });
+        if tx.send(format!("{line}\n")).is_err() {
+            return false;
+        }
+        for t in said {
+            self.push(id, LogLine::new("cmd", format!("› {t}")));
+        }
+        self.persist();
+        true
+    }
+
+    /// A subagent of `id`'s run started (`task_started`): its first line says what it was asked, and whether it works in
+    /// a worktree of its own. Started again once its own background work ended, it keeps that line.
+    fn subagent_started(&self, id: &str, v: &Value) {
+        let Some(tid) = v["task_id"].as_str().filter(|_| task_kind(v["task_type"].as_str().unwrap_or_default()) == "agent") else { return };
+        let worktree = {
+            let g = self.inner.lock().unwrap();
+            if g.sessions.get(id).is_none_or(|s| s.lines.iter().any(|l| l.kind == "agent" && l.agent.as_deref() == Some(tid))) {
+                return;
+            }
+            v["tool_use_id"].as_str().is_some_and(|t| g.seen.get(id).is_some_and(|s| s.worktrees.contains(t)))
+        };
+        let info = json!({ "description": v["description"], "type": v["subagent_type"], "prompt": v["prompt"], "background": v["is_backgrounded"] == true, "worktree": worktree });
+        self.push(id, LogLine::new("agent", info.to_string()).by(tid));
+    }
+
     /// The run `run` of `id` gave its result: its stdin closes, so the CLI ends.
     fn close_input(&self, id: &str, run: u64) {
         let mut g = self.inner.lock().unwrap();
@@ -1789,11 +1910,21 @@ impl AgentManager {
     }
 
     /// A task of `id`'s run ended (`task_notification`): a sub agent or workflow says how in the log. One the run did not
-    /// start, reported before it started, is one the process before it left unfinished (`cut_off`).
+    /// start, reported before it started, is one the process before it left unfinished (`cut_off`). A subagent's lines
+    /// end with its report and that line.
     fn task_ended(&self, id: &str, v: &Value) {
-        let t = {
+        let tid = v["task_id"].as_str().unwrap_or_default();
+        let (t, report) = {
             let mut g = self.inner.lock().unwrap();
-            let t = g.sessions.get(id).and_then(|s| s.tasks.iter().find(|t| v["task_id"] == t.id.as_str()).cloned());
+            let s = g.sessions.get(id);
+            let own = s.and_then(|s| s.tasks.iter().find(|t| t.id == tid).cloned());
+            // A subagent the agent waited for never went to the background: its start line names it.
+            let started = s.and_then(|s| s.lines.iter().rev().find(|l| l.kind == "agent" && l.agent.as_deref() == Some(tid)));
+            let named = started.and_then(|l| serde_json::from_str::<Value>(&l.text).ok()).map(|i| i["description"].as_str().unwrap_or_default().to_string());
+            // Its report, unless its last words were it: one the agent waited for sends them only here. Stopped, it has none.
+            let said = s.and_then(|s| s.lines.iter().rev().find(|l| l.kind == "ai" && l.agent.as_deref() == Some(tid)));
+            let summary = v["summary"].as_str().unwrap_or_default().trim();
+            let report = (started.is_some() && v["status"] != "stopped" && !summary.is_empty() && said.is_none_or(|l| l.text.trim_start_matches("✦ ") != summary)).then(|| format!("✦ {summary}"));
             // Ended by itself after the turn: the CLI runs another, which tells the agent.
             if v["status"] != "stopped" {
                 if let Some(natural) = g.idle.get_mut(id) {
@@ -1801,10 +1932,11 @@ impl AgentManager {
                 }
             }
             let seen = g.seen.entry(id.into()).or_default();
-            if t.is_none() && !seen.started {
+            if own.is_none() && !seen.started {
                 seen.cut_off = true;
             }
-            t
+            let t = own.or_else(|| Some(SubTask { id: tid.into(), kind: "agent".into(), description: named?, at: 0, doing: String::new(), agents: None, rows: HashMap::new() }));
+            (t, report)
         };
         let Some(t) = t.filter(|t| t.kind == "agent" || t.kind == "workflow") else { return };
         let what = if t.kind == "workflow" { "Workflow" } else { "Subagent" };
@@ -1814,7 +1946,11 @@ impl AgentManager {
             Some("failed") => format!("✕ {what} failed · {}", t.description),
             _ => format!("{what} stopped · {}", t.description),
         };
-        self.push(id, LogLine::new("task", line));
+        if let Some(r) = report {
+            self.push(id, LogLine::new("ai", r).by(tid));
+        }
+        let line = LogLine::new("task", line);
+        self.push(id, if t.kind == "agent" { line.by(tid) } else { line });
     }
 
     /// The UI shows the background tasks of `id` again: at once when the list changed (`listed`, saved too), else at most
@@ -2193,6 +2329,108 @@ mod tests {
                 ("ai".into(), "✦ Launched.".into()),
             ]
         );
+    }
+
+    // Shapes from Claude Code 2.1.332 (`-p --verbose`): a subagent's messages and asks carry its `agent_id`, its task id.
+    #[test]
+    fn a_subagents_work_shows_under_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = AgentManager::new(broadcast::channel(64).0, dir.path());
+        running(&m, "a");
+        let feed = |l: &str| assert_eq!(m.handle_stream_json("a", l), None);
+        // One in a worktree of its own, in the background.
+        feed(r#"{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"tool_use","id":"tu1","name":"Agent","input":{"description":"Add note","prompt":"Write note.txt","isolation":"worktree","run_in_background":true}}]}}"#);
+        feed(r#"{"type":"system","subtype":"task_started","task_id":"s1","tool_use_id":"tu1","description":"Add note","subagent_type":"general-purpose","task_type":"local_agent","is_backgrounded":true,"prompt":"Write note.txt"}"#);
+        feed(r#"{"type":"system","subtype":"background_tasks_changed","tasks":[{"task_id":"s1","task_type":"local_agent","subagent_type":"general-purpose","description":"Add note"}]}"#);
+        feed(r#"{"type":"assistant","parent_tool_use_id":"tu1","agent_id":"s1","message":{"content":[{"type":"tool_use","id":"x1","name":"Bash","input":{"command":"echo hi > note.txt"}}]}}"#);
+        feed(r#"{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"echo hi > note.txt"},"agent_id":"s1"}}"#);
+        feed(r#"{"type":"user","parent_tool_use_id":"tu1","agent_id":"s1","message":{"content":[{"type":"tool_result","is_error":true,"content":"Exit code 1"}]}}"#);
+        feed(r#"{"type":"assistant","parent_tool_use_id":"tu1","agent_id":"s1","message":{"content":[{"type":"text","text":"Wrote it.\n\nDone."}]}}"#);
+        // Started again once its own background work ended: still one subagent.
+        feed(r#"{"type":"system","subtype":"task_started","task_id":"s1","tool_use_id":"tu1","description":"Add note","task_type":"local_agent","is_backgrounded":true}"#);
+        feed(r#"{"type":"system","subtype":"task_notification","task_id":"s1","status":"completed","summary":"Wrote it.\n\nDone."}"#);
+        // One the agent waits for: its last words come only in its notification.
+        feed(r#"{"type":"system","subtype":"task_started","task_id":"s2","tool_use_id":"tu2","description":"List repo","subagent_type":"Explore","task_type":"local_agent","is_backgrounded":false,"prompt":"Run ls"}"#);
+        feed(r#"{"type":"system","subtype":"task_notification","task_id":"s2","status":"failed","summary":"No ls here."}"#);
+        // Stopped: no report.
+        feed(r#"{"type":"system","subtype":"task_started","task_id":"s3","tool_use_id":"tu4","description":"Lint","task_type":"local_agent","is_backgrounded":false}"#);
+        feed(r#"{"type":"system","subtype":"task_notification","task_id":"s3","status":"stopped","summary":"Stopped"}"#);
+        // A command is no subagent.
+        feed(r#"{"type":"system","subtype":"task_started","task_id":"b1","tool_use_id":"tu3","description":"Build","task_type":"local_bash","is_backgrounded":true}"#);
+
+        let s = m.get("a").unwrap();
+        assert_eq!(s.asks[0].agent.as_deref(), Some("s1"));
+        let info = |i: usize| serde_json::from_str::<Value>(&s.lines[i].text).unwrap();
+        assert_eq!((info(1)["description"].as_str(), info(1)["prompt"].as_str(), info(1)["worktree"].as_bool(), info(1)["background"].as_bool()), (Some("Add note"), Some("Write note.txt"), Some(true), Some(true)));
+        assert_eq!((info(6)["description"].as_str(), info(6)["worktree"].as_bool(), info(6)["background"].as_bool()), (Some("List repo"), Some(false), Some(false)));
+        let shown: Vec<(&str, Option<&str>, &str)> = s.lines.iter().map(|l| (l.kind.as_str(), l.agent.as_deref(), if l.kind == "agent" { "" } else { l.text.as_str() })).collect();
+        assert_eq!(
+            shown,
+            [
+                ("dim", None, "  Agent "),
+                ("agent", Some("s1"), ""),
+                ("run", Some("s1"), "  Bash echo hi > note.txt"),
+                ("err", Some("s1"), "✕ Exit code 1"),
+                ("ai", Some("s1"), "✦ Wrote it.\n\nDone."),
+                ("task", Some("s1"), "✓ Subagent done · Add note"),
+                ("agent", Some("s2"), ""),
+                ("ai", Some("s2"), "✦ No ls here."),
+                ("task", Some("s2"), "✕ Subagent failed · List repo"),
+                ("agent", Some("s3"), ""),
+                ("task", Some("s3"), "Subagent stopped · Lint"),
+            ]
+        );
+    }
+
+    #[test]
+    fn you_can_reply_while_only_background_work_goes_on() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = AgentManager::new(broadcast::channel(64).0, dir.path());
+        running(&m, "a");
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        m.inner.lock().unwrap().answers.insert("a".into(), (1, tx));
+        let open = |m: &AgentManager| m.inner.lock().unwrap().answers.contains_key("a");
+        let turn_ends = |m: &AgentManager| {
+            assert_eq!(m.handle_stream_json("a", r#"{"type":"result","subtype":"success","is_error":false,"num_turns":1,"result":"ok"}"#), Some(true));
+            m.turn_ended("a", 1);
+        };
+        let tasks = |ids: &[&str]| {
+            let list: Vec<Value> = ids.iter().map(|i| json!({ "task_id": i, "task_type": "local_agent", "description": i })).collect();
+            json!({ "type": "system", "subtype": "background_tasks_changed", "tasks": list }).to_string()
+        };
+        m.handle_stream_json("a", &tasks(&["s1"]));
+        // Sent mid-turn: it waits for the turn to end, not for the work in the background.
+        m.message("a", "first", &cli("claude")).unwrap();
+        assert_eq!(m.get("a").unwrap().queued, ["first"]);
+        assert!(rx.try_recv().is_err());
+        turn_ends(&m);
+        let p = sent(&mut rx);
+        assert_eq!(p["type"], "user");
+        assert!(p["message"]["content"].as_str().unwrap().starts_with(&format!("first\n\n{QUEUED_NOTE}")));
+        let s = m.get("a").unwrap();
+        assert!(s.queued.is_empty());
+        assert_eq!(s.lines.last().map(|l| l.text.as_str()), Some("› first"));
+        // Its answer asks you: your turn, while s1 works on.
+        m.handle_stream_json("a", r#"{"type":"assistant","parent_tool_use_id":null,"message":{"content":[{"type":"text","text":"A. Which one?\n1. Red\n2. Blue"}]}}"#);
+        turn_ends(&m);
+        assert_eq!(m.get("a").unwrap().lines.last().map(|l| l.kind.as_str()), Some("wait"));
+        assert!(open(&m));
+        // Your answer goes in at once.
+        m.message("a", "2", &cli("claude")).unwrap();
+        assert_eq!(sent(&mut rx)["message"]["content"], "2");
+        let s = m.get("a").unwrap();
+        assert!(s.queued.is_empty());
+        assert_eq!(s.lines.last().map(|l| l.text.as_str()), Some("› 2"));
+        // Mid-turn again: it waits. Stopping the last task by hand doesn't close stdin before that turn's result.
+        m.message("a", "3", &cli("claude")).unwrap();
+        assert_eq!(m.get("a").unwrap().queued, ["3"]);
+        m.handle_stream_json("a", &tasks(&[]));
+        assert!(open(&m));
+        // Nothing left in the background: the result closes stdin, so the run ends, and its end sends the queue.
+        turn_ends(&m);
+        assert!(!open(&m));
+        assert_eq!(m.get("a").unwrap().queued, ["3"]);
+        assert!(rx.try_recv().is_err());
     }
 
     #[test]

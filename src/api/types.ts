@@ -614,11 +614,14 @@ export interface LogEntry {
 }
 
 export interface LogLine {
-  /** "files": what a turn changed, as JSON (`agents.rs` turn_files). "limit": the usage limit a run stopped at, in its CLI's words. */
-  kind: "cmd" | "ai" | "ok" | "dim" | "err" | "wait" | "run" | "files" | "limit";
+  /** "files": what a turn changed, as JSON (`agents.rs` turn_files). "limit": the usage limit a run stopped at, in its CLI's words.
+   * "agent": a subagent's start, as JSON (`agentLog.ts` SubInfo). "task": how a subagent or workflow ended. */
+  kind: "cmd" | "ai" | "ok" | "dim" | "err" | "wait" | "run" | "files" | "limit" | "task" | "agent";
   text: string;
   /** When it was logged, ms since the epoch; lines from before timestamps have none. */
   at?: number;
+  /** The subagent that logged it, by its CLI task id: shown under that subagent, not as the agent's own work. */
+  agent?: string;
 }
 
 export interface AgentSession {
@@ -636,7 +639,7 @@ export interface AgentSession {
   resumeId?: string | null;
   /** What the session runs on; missing on sessions from before routing. */
   ai?: { provider: string; model: string; effort: string; permission?: string; ultracode?: boolean } | null;
-  /** Messages sent while it works, in order; they go out together when the run ends. */
+  /** Messages sent while it works, in order; they go out together when its turn or run ends. */
   queued: string[];
   /** The usage limit its last run stopped at: it waits (status "waiting") for the reset, or for you. */
   limit?: AgentLimit | null;
@@ -694,6 +697,8 @@ export interface AgentAsk {
   tool: string;
   detail: string;
   description: string;
+  /** The subagent asking, by its task id; none when the agent itself asks. */
+  agent?: string;
 }
 
 /** A usage limit an agent's run stopped at (`limits.rs`). Times are ms since the epoch. */

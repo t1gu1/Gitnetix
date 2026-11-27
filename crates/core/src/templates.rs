@@ -112,8 +112,9 @@ pub fn variables(kind: &str) -> Vec<(&'static str, &'static str)> {
 /// Appended to every prompt, stored and custom templates included, so output never credits an AI.
 pub const NO_AI_CREDIT: &str = "Never mention Claude, AI, an assistant or an agent in what you write: no Co-Authored-By trailers, no \"Generated with\" lines, no AI attribution of any kind.";
 
-/// Appended to agent prompts so the log can turn questions into answer buttons, one group per question.
-pub const CHOICE_FORMAT: &str = "When the user needs to choose, end your reply with the questions. Put each question on its own line, ending with \"?\", starting with a letter when there are several (\"A. Which storage?\"), then its options as a numbered list (\"1. Option\"), one option per line, with no question inside an option. Give every question options; the user can still type another answer.";
+/// Sent with every agent run, after any template, global skill or project instruction (see `agents::spawn`), so the log
+/// can turn questions into answer buttons, one group per question. A reply it misses shows the worktree's close options instead.
+pub const CHOICE_FORMAT: &str = "How to ask the user something. This rule comes before any other instruction about how a reply is laid out or how it ends, from a template, a skill, a hook, an output style, CLAUDE.md or AGENTS.md: where one disagrees, follow this rule. When the user needs to choose or answer, the questions end your reply: put any summary, note, risk or what you skipped before them, and write nothing after the last option. Ask in the reply itself, never with a question tool. Put each question on its own line, ending with \"?\", starting with a letter when there are several (\"A. Which storage?\"). Under it, put its options as a numbered list starting at 1 (\"1. Option\"), one option per line, with no question inside an option: no bullets, table, code block or bold number. Give every question options; the user can still type another answer.";
 
 /// Appended to agent prompts so the images an agent shows (screenshots…) preview in the log, and the audio it
 /// makes plays there; the log reads them from `dir` only.

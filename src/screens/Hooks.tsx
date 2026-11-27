@@ -13,11 +13,11 @@ type Moment = { id: string; group: string; label: string; title: string; where: 
 
 /** Keep in step with MOMENTS in crates/core/src/hooks.rs and the variables each call site in app.rs sets. */
 const MOMENTS: Moment[] = [
-  { id: "branchCreated", group: "Branches", label: "Created", title: "When a branch is created", where: "Its worktree when it gets one, else the main checkout", when: "Once the branch exists and its worktree files are copied", vars: ["BRANCH", "PARENT", "WORKTREE", "MAIN"] },
+  { id: "branchCreated", group: "Branches", label: "Created", title: "When a branch is created", where: "Its worktree when it gets one, else the main checkout", when: "Once the branch exists and its worktree files are copied. An agent started with it waits for it, up to 30 seconds", vars: ["BRANCH", "PARENT", "WORKTREE", "MAIN"] },
   { id: "branchSwitched", group: "Branches", label: "Switched", title: "When the main checkout switches branch", where: "The main checkout", when: "Once the switch is done", vars: ["BRANCH", "FROM", "MAIN"] },
   { id: "branchMerged", group: "Branches", label: "Merged", title: "When a branch is merged", where: "The main checkout", when: "Once the merge is done, and pushed when asked", vars: ["BRANCH", "INTO", "MAIN"] },
   { id: "branchDeleted", group: "Branches", label: "Deleted", title: "When a branch is deleted", where: "The main checkout", when: "Once the branch is deleted, after its worktree", vars: ["BRANCH", "MAIN"] },
-  { id: "worktreeCreated", group: "Worktrees", label: "Created", title: "When a worktree is created", where: "The new worktree", when: "Once its worktree files are copied", vars: ["BRANCH", "WORKTREE", "MAIN"] },
+  { id: "worktreeCreated", group: "Worktrees", label: "Created", title: "When a worktree is created", where: "The new worktree", when: "Once its worktree files are copied. An agent started in it waits for it, up to 30 seconds", vars: ["BRANCH", "WORKTREE", "MAIN"] },
   { id: "worktreeRemoved", group: "Worktrees", label: "Removed", title: "When a worktree is removed", where: "The worktree, while its files are still there", when: "Before Gitnetix removes it, which waits for the commands", vars: ["BRANCH", "WORKTREE", "MAIN"] },
   { id: "releaseCreated", group: "Releases", label: "Created", title: "When a release is created", where: "The main checkout", when: "Once its release branch exists", vars: ["BRANCH", "VERSION", "MAIN"] },
   { id: "releasePublished", group: "Releases", label: "Published", title: "When a version is tagged", where: "The main checkout", when: "Once the tag is created, and pushed when asked", vars: ["BRANCH", "VERSION", "TAG", "MAIN"] },

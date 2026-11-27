@@ -6,6 +6,7 @@ pub mod agents;
 pub mod ai;
 pub mod analytics;
 pub mod app;
+pub mod auto_resolve;
 pub mod cache;
 pub mod dictation;
 pub mod error;

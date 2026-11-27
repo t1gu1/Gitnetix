@@ -5,7 +5,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAction, useAgentBlobs, useAgentDiff, useAgentFile, useAiCatalog, useConfig, useSkills } from "../api/hooks";
 import { captureArtifact, clipboardFiles, copyAgentFile, downloadAgentFile, isLocal, localHead, localImage, onPathDrop, openArtifact, revealPath, rpc } from "../api/transport";
 import type { AgentAsk, AgentLimit, AgentTask, Blobs, LogLine, Skill } from "../api/types";
-import { blocks, errText, folds, questions, said, stepsLabel, tasksLabel, took, type Block, type Fold, type Opt, type Question } from "../lib/agentLog";
+import { blocks, errText, folds, lastOwn, questions, said, stepsLabel, subBlocks, subState, tasksLabel, took, type Block, type Fold, type Opt, type Question, type SubBlock } from "../lib/agentLog";
 import { OwnMic } from "../lib/dictation";
 import { bytes, clock, plural } from "../lib/format";
 import { copyToClipboard, toast } from "../lib/toast";
@@ -505,14 +505,16 @@ function SignInCard({ provider, failedAt, onContinue }: { provider: string; fail
   );
 }
 
-/** An action agent `session`'s run waits on you for. Allow runs it; Refuse has the agent look for another way, or say what is blocked. */
-function AskCard({ session, ask }: { session: string; ask: AgentAsk }) {
+/** An action agent `session`'s run waits on you for. Allow runs it; Refuse has the agent look for another way, or say what is blocked.
+ *  `by`: the subagent asking, when it isn't the agent. */
+function AskCard({ session, ask, by }: { session: string; ask: AgentAsk; by?: string }) {
   const answer = useAction("agents.answer", { invalidate: [["agents"]] });
   const go = (allow: boolean) => answer.mutate({ id: session, ask: ask.id, allow });
   return (
     <div className="ag-limit" role="group" aria-label={`Allow ${ask.tool}?`}>
       <Icon name="lock" size={18} />
       <div className="ag-limit-body grow">
+        {by !== undefined && <span className="ag-ask-by ellipsis">Subagent · {by || "Subagent"}</span>}
         <span className="ag-limit-title">Allow {ask.tool}?</span>
         {ask.description && <span className="ag-limit-when">{ask.description}</span>}
         {ask.detail && <code className="ag-ask-detail">{ask.detail}</code>}
@@ -533,12 +535,82 @@ function AskCard({ session, ask }: { session: string; ask: AgentAsk }) {
 
 const TASK_ICON: Record<AgentTask["kind"], string> = { workflow: "layers", agent: "sparkle", shell: "terminal", other: "more" };
 
-/** What an agent's run left going in the background: its turn ends, and its close options show, only once all of it ends.
- *  `session`: the agent's id, for each task's Stop (Claude Code's `stop_task`: that task alone ends, the run goes on). */
-function TasksCard({ tasks, session }: { tasks: AgentTask[]; session?: string }) {
+type SubShown = ReturnType<typeof subState> | "asking";
+const SUB_STATE: Record<SubShown, [label: string, cls: string]> = {
+  running: ["Working", "glow-working"],
+  asking: ["Waiting for you", "c-warn"],
+  done: ["Done", "faint"],
+  failed: ["Failed", "c-del"],
+  stopped: ["Stopped", "faint"],
+};
+
+/** A subagent's steps, its own tool calls. */
+const subSteps = (b: SubBlock) => b.lines.filter((l) => l.kind === "run" || l.kind === "dim");
+
+/** What subagent `b` did: what it was asked, then its steps and words, drawn as the agent's own. `live`: it works on its last steps, which stay open. */
+function SubagentWork({ b, live, session }: { b: SubBlock; live: boolean; session?: string }) {
+  const list = subBlocks(b.lines);
+  return (
+    <div className="ag-sub-work">
+      {b.info.prompt && (
+        <div className="ag-sub-asked">
+          <span className="ag-sub-label">Asked</span>
+          <Clamp text={b.info.prompt} />
+        </div>
+      )}
+      {list.map((x, i) =>
+        x.kind === "ai" ? (
+          <div key={i} className="ag-ai">
+            <Markdown text={x.text} />
+            <Files files={shown(x.text)} session={session} />
+          </div>
+        ) : x.kind === "steps" ? (
+          <Steps key={i} lines={x.lines} open={live && i === list.length - 1} />
+        ) : x.kind === "err" ? (
+          <div key={i} className="ag-err">
+            <span>✕ {errText(x.text)}</span>
+          </div>
+        ) : null,
+      )}
+      {!list.length && <span className="ag-sub-none">{live ? "Starting…" : "Nothing logged."}</span>}
+    </div>
+  );
+}
+
+/** A subagent the agent started, as one row where it started: what it does and how far it got; opened, its work. */
+function Subagent({ b, state, session }: { b: SubBlock; state: SubShown; session?: string }) {
+  const [open, setOpen] = useState(false);
+  const steps = subSteps(b);
+  const [label, cls] = SUB_STATE[state];
+  const live = state === "running" || state === "asking";
+  const meta = [b.info.type, b.info.worktree && "own worktree", plural(steps.length, "step")].filter(Boolean).join(" · ");
+  return (
+    <div className="ag-act">
+      <div className="ag-sub">
+        <button type="button" className="ag-sub-head" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <Icon name={open ? "chevronDown" : "chevronRight"} size={12} />
+          <span className="ag-sub-what ellipsis" title={b.info.description}>{b.info.description || "Subagent"}</span>
+          <span className={`ag-sub-state ${cls}`}>
+            <span>{label}</span>
+          </span>
+        </button>
+        <span className="ag-sub-meta ellipsis">Subagent · {meta}</span>
+        {live && !open && steps.length > 0 && <span className="ag-sub-now ellipsis">{steps[steps.length - 1].text.trim()}</span>}
+        {open && <SubagentWork b={b} live={live} session={session} />}
+      </div>
+    </div>
+  );
+}
+
+/** What an agent's run left going in the background: its close options show only once all of it ends, but once its turn
+ *  is over (`over`) you can reply meanwhile. `session`: the agent's id, for each task's Stop (Claude Code's `stop_task`:
+ *  that task alone ends, the run goes on). `subs`: the subagents' work by task id, which a subagent's row opens on; `asks`:
+ *  what the run waits on you to allow, which a subagent asking says. */
+function TasksCard({ tasks, session, subs, over, asks }: { tasks: AgentTask[]; session?: string; subs: Map<string, SubBlock>; over: boolean; asks: AgentAsk[] }) {
   // Their running times count up.
   const now = useNow(1000);
   const stop = useAction<unknown, { id: string; task: string }>("agents.stopTask");
+  const [open, setOpen] = useState<string>();
   return (
     <div className="ag-bg" role="group" aria-label="Working in the background">
       <div className="ag-bg-head">
@@ -549,7 +621,14 @@ function TasksCard({ tasks, session }: { tasks: AgentTask[]; session?: string })
         {tasks.map((t) => (
           <li key={t.id} className="ag-bg-task">
             <Icon name={TASK_ICON[t.kind]} size={13} />
-            <span className="ag-bg-what ellipsis" title={t.description}>{t.description || "Background task"}</span>
+            {subs.has(t.id) ? (
+              <button type="button" className="ag-bg-what ag-bg-open ellipsis" title={t.description} aria-expanded={open === t.id} onClick={() => setOpen(open === t.id ? undefined : t.id)}>
+                <Icon name={open === t.id ? "chevronDown" : "chevronRight"} size={11} />
+                <span className="ellipsis">{t.description || "Subagent"}</span>
+              </button>
+            ) : (
+              <span className="ag-bg-what ellipsis" title={t.description}>{t.description || "Background task"}</span>
+            )}
             <span className="ag-bg-time">{took(Math.max(0, now - t.at))}</span>
             {session && (
               <button
@@ -569,11 +648,16 @@ function TasksCard({ tasks, session }: { tasks: AgentTask[]; session?: string })
                 {t.agents[0]} of {plural(t.agents[1], "agent")} done
               </span>
             )}
-            {t.doing && <span className="ag-bg-doing ellipsis" title={t.doing}>{t.doing}</span>}
+            {asks.some((a) => a.agent === t.id) ? (
+              <span className="ag-bg-doing ag-bg-asks">Waiting for you to allow {asks.find((a) => a.agent === t.id)?.tool}</span>
+            ) : (
+              t.doing && open !== t.id && <span className="ag-bg-doing ellipsis" title={t.doing}>{t.doing}</span>
+            )}
+            {open === t.id && subs.get(t.id) && <SubagentWork b={subs.get(t.id)!} live session={session} />}
           </li>
         ))}
       </ul>
-      <span className="ag-bg-hint">The agent carries on with your task when this work ends.</span>
+      <span className="ag-bg-hint">{over ? "You can reply now: the agent answers while this works, and carries on with your task when it ends." : "The agent carries on with your task when this work ends."}</span>
     </div>
   );
 }
@@ -624,6 +708,12 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
     if (el.scrollHeight - el.clientHeight < 400) more();
   }, [from]); // eslint-disable-line react-hooks/exhaustive-deps
   const qs = questions(lines);
+  // Its turn is over: what is left is work in the background, and you can reply meanwhile.
+  const over = lastOwn(list)?.kind === "wait";
+  const subs = useMemo(() => new Map(list.flatMap((b) => (b.kind === "agent" ? [[b.id, b] as const] : []))), [list]);
+  // What a subagent's row shows changes with these, not with each second of progress.
+  const going = tasks.map((t) => t.id).join();
+  const asking = asks.map((a) => a.agent ?? "").join();
   // Through a ref: a new handler on each key typed below would redraw every file link.
   const opener = useRef(onOpenFile);
   opener.current = onOpenFile;
@@ -758,6 +848,10 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
         case "limit":
           // The latest one shows as its card while it holds the agent.
           return held && i === list.length - 1 ? null : <div key={i} className="ag-note ag-limited">{errText(b.text)}</div>;
+        case "agent": {
+          const state = asks.some((a) => a.agent === b.id) ? "asking" : subState(b, !!working, tasks);
+          return <Subagent key={i} b={b} state={state} session={session} />;
+        }
         default:
           return <div key={i} className="ag-note">{b.text}</div>;
       }
@@ -772,7 +866,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
       } else if (i >= from) out.push(one(list[i], i, opens.has(i)));
     }
     return out;
-  }, [list, fold, from, task, opens, mark, me, session, canRetry, signedOut, held]);
+  }, [list, fold, from, task, opens, mark, me, session, canRetry, signedOut, held, working, going, asking]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div
       ref={ref}
@@ -805,7 +899,7 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
       {lines.length === 0 && <div className="ag-empty">{empty ?? "No output yet."}</div>}
       <FileRoot.Provider value={fileRoot}>{history}</FileRoot.Provider>
       {viewing && projectId && <LocalFile pid={projectId} path={viewing} onClose={() => setViewing(undefined)} />}
-      {list.at(-1)?.kind === "wait" && (
+      {over && (
         <div className="ag-wait">
           <span className="ag-wait-chip">Your turn!</span>
           {qs.length > 0 && (
@@ -815,12 +909,13 @@ export function AgentLog({ lines, empty, picks, onPicks, actions, thinking, work
               <Choices qs={qs} picks={picks} onPicks={onPicks} />
             </div>
           )}
-          {qs.length === 0 && actions && <div className="ag-choices">{actions}</div>}
+          {/* Closing the work waits for the work in the background. */}
+          {qs.length === 0 && actions && !working && <div className="ag-choices">{actions}</div>}
         </div>
       )}
-      {session && asks.map((a) => <AskCard key={a.id} session={session} ask={a} />)}
-      {working && tasks.length > 0 && <TasksCard tasks={tasks} session={session} />}
-      {thinking && !asks.length && (
+      {session && asks.map((a) => <AskCard key={a.id} session={session} ask={a} by={a.agent ? (subs.get(a.agent)?.info.description ?? "") : undefined} />)}
+      {working && tasks.length > 0 && <TasksCard tasks={tasks} session={session} subs={subs} over={over} asks={asks} />}
+      {thinking && !asks.length && !over && (
         <div className="ag-act" role="status" aria-label="Agent is thinking">
           {fresh && mark}
           <span className="ag-dots" aria-hidden="true"><i /><i /><i /></span>

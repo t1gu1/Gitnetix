@@ -45,7 +45,7 @@ import type {
   WeeklyReport,
   WorktreeView,
 } from "./types";
-import { limitLabel, shownStatus } from "../lib/agentLog";
+import { limitLabel, questions, shownStatus } from "../lib/agentLog";
 import { askFork } from "../lib/forkAsk";
 import { askGitLogin } from "../lib/gitLogin";
 import { DEFAULT_TYPES } from "../lib/kinds";
@@ -75,12 +75,20 @@ export function useEngineEvents() {
           case "filesProgress":
             qc.setQueryData<FilesProgress | null>(["filesProgress", e.projectId], (prev) => filesProgressStep(prev, e.done, e.total, Date.now()));
             break;
-          case "agentLine":
+          case "agentLine": {
             // A message of yours going out takes the queued ones with it.
             qc.setQueryData<AgentSession[]>(["agents"], (list) =>
               list?.map((s) => (s.id === e.sessionId ? { ...s, lines: [...s.lines.slice(-1999), e.line], queued: e.line.kind === "cmd" ? [] : s.queued } : s)),
             );
+            // Phone: buzz when its turn ends on questions while its background work goes on. Its status stays running then,
+            // so no status event says it; a run that ends has no background work left by then.
+            const s = e.line.kind === "wait" && !isLocal ? qc.getQueryData<AgentSession[]>(["agents"])?.find((x) => x.id === e.sessionId) : undefined;
+            if (s?.status === "running" && s.tasks?.length && questions(s.lines).length) {
+              navigator.vibrate?.([200, 100, 200]);
+              toast(`Agent on ${s.branch} is waiting for you`, "info", 8000);
+            }
             break;
+          }
           case "agentTasks":
             // Only the panel redraws: a workflow's progress comes up to once a second.
             qc.setQueryData<AgentSession[]>(["agents"], (list) => list?.map((s) => (s.id === e.sessionId ? { ...s, tasks: e.tasks } : s)));

@@ -3,7 +3,7 @@
 //! what happened; its output goes to the Logs, and the moment's last run shows on the Hooks page.
 
 use std::collections::{BTreeMap, HashMap};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -28,6 +28,8 @@ pub const MOMENTS: &[(&str, &str)] = &[
 const COMMAND_MAX: Duration = Duration::from_secs(600);
 /// Each command's output kept for the Hooks page and the Logs: its end, where errors are.
 const OUTPUT_MAX: usize = 4000;
+/// The longest [`settle`] waits: a slow hook (an install) delays an agent's start this much at most.
+const SETTLE_MAX: Duration = Duration::from_secs(30);
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 #[serde(default, rename_all = "camelCase")]
@@ -72,6 +74,9 @@ pub type Vars = Vec<(&'static str, String)>;
 /// Last run of each (project id, moment) since the app started.
 static RUNS: Mutex<Option<HashMap<(String, String), Run>>> = Mutex::new(None);
 
+/// The folder of each [`spawn`]ed hook still running, once per spawn.
+static BUSY: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
 /// The project's last run of each moment since the app started, by moment.
 pub fn runs(project_id: &str) -> BTreeMap<String, Run> {
     let runs = RUNS.lock().unwrap_or_else(|e| e.into_inner());
@@ -88,11 +93,34 @@ pub fn live(p: &Project, moment: &str) -> Option<Hook> {
 pub fn spawn(p: &Project, moment: &'static str, cwd: &Path, each: Vec<Vars>) {
     let Some(hook) = live(p, moment) else { return };
     let (id, name, cwd) = (p.id.clone(), p.name.clone(), cwd.to_path_buf());
+    BUSY.lock().unwrap_or_else(|e| e.into_inner()).push(cwd.clone());
     tokio::spawn(async move {
         for vars in each {
             run(&id, &name, moment, &hook, &cwd, &vars).await;
         }
+        let mut busy = BUSY.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(i) = busy.iter().position(|d| *d == cwd) {
+            busy.swap_remove(i);
+        }
     });
+}
+
+/// Waits until no [`spawn`]ed hook still runs in `cwd`, at most [`SETTLE_MAX`]: an agent starting there finds what
+/// the hooks set up (copied settings, links). False when one still runs.
+pub async fn settle(cwd: &Path) -> bool {
+    settle_within(cwd, SETTLE_MAX).await
+}
+
+async fn settle_within(cwd: &Path, max: Duration) -> bool {
+    let end = tokio::time::Instant::now() + max;
+    // shortcut: polls every 100 ms instead of a notify per folder, fine for a wait that runs once per agent start.
+    while BUSY.lock().unwrap_or_else(|e| e.into_inner()).iter().any(|d| d == cwd) {
+        if tokio::time::Instant::now() >= end {
+            return false;
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    true
 }
 
 /// Runs `p`'s hook for `moment` and waits for it. Err (naming the command) when one failed and the hook stops on
@@ -244,6 +272,18 @@ mod tests {
         wait(&empty, "branchDeleted", dir.path(), Vec::new()).await.unwrap();
         assert!(!dir.path().join("ran").exists());
         assert!(runs(&p.id).is_empty() && runs(&empty.id).is_empty());
+    }
+
+    #[tokio::test]
+    async fn settle_waits_for_the_hooks_spawned_in_its_folder_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = project("worktreeCreated", &["sleep 1; touch done"], false);
+        spawn(&p, "worktreeCreated", dir.path(), vec![Vec::new()]);
+        let other = tempfile::tempdir().unwrap();
+        assert!(settle_within(other.path(), Duration::ZERO).await, "another folder does not wait");
+        assert!(!settle_within(dir.path(), Duration::from_millis(200)).await, "gives up while the hook runs");
+        assert!(settle_within(dir.path(), Duration::from_secs(20)).await);
+        assert!(dir.path().join("done").exists());
     }
 
     #[test]
