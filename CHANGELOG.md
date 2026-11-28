@@ -14,6 +14,10 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+### Added (App)
+- Jira and Linear tickets now let you read and set the sprint, parent and original estimate, with the new `tickets.sprints` and `tickets.parents` methods.
+- A new `taskOutput` method reads the tail of a background command's output.
+
 ### Changed (App)
 - AI resolves conflicts with Sonnet 5.5 at medium effort by default, instead of Opus 5.5 at high effort. In a benchmark of 9 conflict cases it settled every one as well, 23 to 41% faster. Settings still on the old default move over once; to keep Opus, pick it again for Conflict resolution in the AI settings.
 - AI works on up to 6 conflicted files at once instead of 3, so a commit that conflicts in many files settles in fewer rounds.
