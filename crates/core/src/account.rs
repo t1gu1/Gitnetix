@@ -26,9 +26,11 @@ const PIN: &str = "gitnetix.account-pin";
 /// A project's fields that belong to this computer or to the repository itself: they never sync.
 const LOCAL_ONLY: &[&str] = &["id", "name", "path", "addedAt", "hidden", "releases", "branches", "ticketReleases", "aiCommits", "forgottenReleases", "renamedBranches"];
 
-/// The Gitnetix server; `GITNETIX_API_URL` points a dev build or a self-hosted server elsewhere.
+/// The Gitnetix server; `GITNETIX_API_URL` points the app at another one, such as a self-hosted server.
+/// A dev build defaults to the back-end's local `docker compose` (127.0.0.1:3000).
 pub fn server() -> String {
-    std::env::var("GITNETIX_API_URL").unwrap_or_else(|_| "https://api.gitnetix.app".into()).trim_end_matches('/').to_string()
+    let default = if cfg!(debug_assertions) { "http://127.0.0.1:3000" } else { "https://api.gitnetix.app" };
+    std::env::var("GITNETIX_API_URL").unwrap_or_else(|_| default.into()).trim_end_matches('/').to_string()
 }
 
 /// What this install last synced, to tell which side changed since: by repository key, and for the settings,
