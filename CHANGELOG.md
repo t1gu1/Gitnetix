@@ -14,6 +14,8 @@ the in-app update prompt.
 
 ## [Unreleased]
 
+## [0.36.10] - 2026-11-28
+
 ### Added (App)
 - Jira and Linear tickets now let you read and set the sprint, parent and original estimate, with the new `tickets.sprints` and `tickets.parents` methods.
 - A new `taskOutput` method reads the tail of a background command's output.
