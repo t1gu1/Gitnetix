@@ -73,6 +73,9 @@ pub struct Ticket {
     pub parent_title: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub parent_url: String,
+    /// The Jira sprint (the active one, else one to come) or Linear cycle it is in.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sprint: String,
     /// Linear project name and page.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub project_name: String,
@@ -89,11 +92,26 @@ pub struct StatusOption {
 }
 
 /// What a ticket's priority, type and labels can be set to; a list stays empty when the tracker doesn't let it change.
+/// `sprint`, `parent` and `estimate`: whether its sprint or cycle, parent and original estimate can change.
 #[derive(Debug, Default, Serialize)]
 pub struct FieldOptions {
     pub priorities: Vec<FieldOption>,
     pub types: Vec<FieldOption>,
     pub labels: Vec<FieldOption>,
+    pub sprint: bool,
+    pub parent: bool,
+    pub estimate: bool,
+}
+
+/// A sprint, cycle or parent issue a ticket can go in or under. `key`: the parent's key; `note`: "Active", or when one to come starts.
+#[derive(Debug, Serialize, PartialEq)]
+pub struct Choice {
+    pub id: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub key: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub note: String,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -113,6 +131,12 @@ pub struct FieldEdit {
     pub priority: Option<String>,
     pub kind: Option<String>,
     pub labels: Option<Vec<String>>,
+    /// A `Choice` id from the sprints or cycles; "" takes the ticket out of its sprint or cycle.
+    pub sprint: Option<String>,
+    /// A `Choice` id from the parents; "" removes the parent.
+    pub parent: Option<String>,
+    /// Jira original estimate as Jira writes it ("2d 4h").
+    pub estimate: Option<String>,
 }
 
 /// A comment on a ticket and, for a thread's first comment, the replies under it, oldest first.
@@ -391,9 +415,10 @@ pub async fn jira(conf: &JiraConf, token: &str, mine: bool, sprint: bool) -> Res
     if sprint {
         jql = and_jql(&jql, "sprint in openSprints()");
     }
-    let me = jira_me(conf, token).await?;
-    let my_id = me["accountId"].as_str().unwrap_or("").to_string();
-    let issues = jira_search(conf, token, &jql, &JIRA_FIELDS, 100, JIRA_CAP).await?;
+    let (me, sprint) = tokio::join!(jira_me(conf, token), jira_sprint_field(conf, token));
+    let my_id = me?["accountId"].as_str().unwrap_or("").to_string();
+    let fields: Vec<&str> = JIRA_FIELDS.into_iter().chain(sprint.as_deref()).collect();
+    let issues = jira_search(conf, token, &jql, &fields, 100, JIRA_CAP).await?;
     Ok(issues.iter().map(|i| jira_ticket(conf, i, &my_id)).collect())
 }
 
@@ -454,10 +479,29 @@ fn jira_ticket(conf: &JiraConf, i: &Value, my_id: &str) -> Ticket {
         parent_key: f["parent"]["key"].as_str().unwrap_or("").into(),
         parent_title: f["parent"]["fields"]["summary"].as_str().unwrap_or("").into(),
         parent_url: f["parent"]["key"].as_str().map(|k| format!("{base}/browse/{k}")).unwrap_or_default(),
+        sprint: jira_open_sprint(f),
         project_name: String::new(),
         project_url: String::new(),
         label_colors: BTreeMap::new(),
     }
+}
+
+/// The Sprint field's id ("customfield_10020") on the connection's site, None without Jira Software. Read once: it doesn't change.
+async fn jira_sprint_field(conf: &JiraConf, token: &str) -> Option<String> {
+    static IDS: std::sync::Mutex<BTreeMap<String, Option<String>>> = std::sync::Mutex::new(BTreeMap::new());
+    if let Some(id) = IDS.lock().unwrap().get(&conf.id) {
+        return id.clone();
+    }
+    let res = jira_req(conf, token, reqwest::Method::GET, "/rest/api/3/field").send().await.ok()?;
+    let id = sprint_fields(&check(res, "Jira").await.ok()?).map(|(sprint, _)| sprint);
+    IDS.lock().unwrap().insert(conf.id.clone(), id.clone());
+    id
+}
+
+/// The name of the open sprint an issue is in, the active one before one to come, from whichever field holds its sprints.
+fn jira_open_sprint(fields: &Value) -> String {
+    let sprints = fields.as_object().into_iter().flatten().filter(|(_, v)| v[0].get("boardId").is_some()).flat_map(|(_, v)| field_sprints(v));
+    sprints.filter(|s| s.state != "closed").min_by_key(|s| s.state != "active").map(|s| s.name).unwrap_or_default()
 }
 
 fn jira_labels(fields: &Value) -> Vec<String> {
@@ -470,7 +514,8 @@ pub async fn jira_issue(conf: &JiraConf, token: &str, key: &str) -> Result<Optio
     if key.is_empty() || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
         return Err(Error::Invalid(format!("“{key}” is not a Jira key")));
     }
-    let path = format!("/rest/api/3/issue/{key}?fields={}", JIRA_FIELDS.join(","));
+    let sprint = jira_sprint_field(conf, token).await.map(|f| format!(",{f}")).unwrap_or_default();
+    let path = format!("/rest/api/3/issue/{key}?fields={}{sprint}", JIRA_FIELDS.join(","));
     let res = jira_req(conf, token, reqwest::Method::GET, &path).send().await?;
     if res.status() == reqwest::StatusCode::NOT_FOUND {
         return Ok(None);
@@ -530,7 +575,15 @@ fn jira_fields_from(editmeta: &Value) -> FieldOptions {
             .filter_map(|o| Some(FieldOption { id: o["id"].as_str()?.into(), name: o["name"].as_str()?.into(), color: String::new(), group: String::new() }))
             .collect()
     };
-    FieldOptions { priorities: allowed("priority"), types: allowed("issuetype"), labels: Vec::new() }
+    let fields = &editmeta["fields"];
+    FieldOptions {
+        priorities: allowed("priority"),
+        types: allowed("issuetype"),
+        labels: Vec::new(),
+        sprint: fields.as_object().is_some_and(|f| f.values().any(|v| v["schema"]["custom"] == "com.pyxis.greenhopper.jira:gh-sprint")),
+        parent: fields["parent"].is_object(),
+        estimate: fields["timetracking"].is_object(),
+    }
 }
 
 pub async fn jira_set_fields(conf: &JiraConf, token: &str, key: &str, edit: &FieldEdit) -> Result<()> {
@@ -541,10 +594,83 @@ pub async fn jira_set_fields(conf: &JiraConf, token: &str, key: &str, edit: &Fie
     if let Some(id) = &edit.kind {
         fields.insert("issuetype".into(), json!({ "id": id }));
     }
+    if let Some(id) = &edit.sprint {
+        let field = jira_sprint_field(conf, token).await.ok_or_else(|| Error::Invalid("This Jira site has no sprints: they come with Jira Software".into()))?;
+        let id = if id.is_empty() { Value::Null } else { json!(id.parse::<u64>().map_err(|_| Error::Invalid(format!("“{id}” is not a Jira sprint")))?) };
+        fields.insert(field, id);
+    }
+    if let Some(key) = &edit.parent {
+        // An empty parent removes it, as Jira's docs for "Remove issues from epic" say.
+        fields.insert("parent".into(), if key.is_empty() { json!({}) } else { json!({ "key": key }) });
+    }
+    if let Some(e) = edit.estimate.as_deref().map(str::trim) {
+        if e.is_empty() {
+            return Err(Error::Invalid("An estimate needs a time, like 2d 4h".into()));
+        }
+        fields.insert("timetracking".into(), json!({ "originalEstimate": e }));
+    }
     if fields.is_empty() {
         return Ok(());
     }
     jira_write(jira_req(conf, token, reqwest::Method::PUT, &format!("/rest/api/3/issue/{key}")).json(&json!({ "fields": fields }))).await
+}
+
+/// The open sprints of ticket `key`'s project, active ones first, then those to come: the ones its tickets are in, and
+/// the empty ones to come of the same boards when the token reaches the boards API ("Sign in with Atlassian"'s doesn't).
+pub async fn jira_sprint_choices(conf: &JiraConf, token: &str, key: &str) -> Result<Vec<Choice>> {
+    let field = jira_sprint_field(conf, token).await.ok_or_else(|| Error::Invalid("This Jira site has no sprints: they come with Jira Software".into()))?;
+    let project = key.split('-').next().unwrap_or(key);
+    let jql = format!("project = \"{project}\" AND (sprint in openSprints() OR sprint in futureSprints())");
+    let mut seen: BTreeMap<u64, Sprint> = BTreeMap::new();
+    for i in jira_search(conf, token, &jql, &[field.as_str()], 1000, SPRINT_CAP).await? {
+        seen.extend(field_sprints(&i["fields"][field.as_str()]).into_iter().map(|s| (s.id, s)));
+    }
+    for b in seen.values().map(|s| s.board).filter(|b| *b != 0).collect::<BTreeSet<_>>() {
+        if let Ok(res) = jira_req(conf, token, reqwest::Method::GET, &format!("/rest/agile/1.0/board/{b}/sprint?state=active,future")).send().await {
+            if let Ok(v) = check(res, "Jira").await {
+                seen.extend(field_sprints(&v["values"]).into_iter().map(|s| (s.id, s)));
+            }
+        }
+    }
+    Ok(sprint_choices(seen.into_values().collect()))
+}
+
+/// Open sprints as choices: the active ones, then those to come by start date, undated ones last in the order they were made.
+fn sprint_choices(mut all: Vec<Sprint>) -> Vec<Choice> {
+    all.retain(|s| s.state != "closed");
+    all.sort_by_key(|s| (s.state != "active", s.start.is_none(), s.start, s.id));
+    all.into_iter()
+        .map(|s| Choice {
+            id: s.id.to_string(),
+            key: String::new(),
+            note: if s.state == "active" { "Active".into() } else { s.start.map(|d| format!("Starts {}", d.format("%b %-d"))).unwrap_or_default() },
+            name: s.name,
+        })
+        .collect()
+}
+
+/// The open issues of ticket `key`'s project one level above it: epics for a story, task or bug; those for a sub-task.
+pub async fn jira_parent_choices(conf: &JiraConf, token: &str, key: &str) -> Result<Vec<Choice>> {
+    let project = key.split('-').next().unwrap_or(key);
+    let get = |path: String| async move { check(jira_req(conf, token, reqwest::Method::GET, &path).send().await?, "Jira").await };
+    let (p, i) = tokio::join!(get(format!("/rest/api/3/project/{project}")), get(format!("/rest/api/3/issue/{key}?fields=issuetype")));
+    let (p, i) = (p?, i?);
+    let level = i["fields"]["issuetype"]["hierarchyLevel"].as_i64().unwrap_or(0) + 1;
+    let types: Vec<&str> = p["issueTypes"].as_array().into_iter().flatten().filter(|t| t["hierarchyLevel"].as_i64() == Some(level)).filter_map(|t| t["id"].as_str()).collect();
+    if types.is_empty() {
+        return Ok(Vec::new());
+    }
+    // shortcut: the 200 last updated of its own project only; search Jira as the user types if a parent goes missing.
+    let jql = format!("project = \"{project}\" AND issuetype in ({}) AND statusCategory != Done ORDER BY updated DESC", types.join(", "));
+    let issues = jira_search(conf, token, &jql, &["summary"], 100, 200).await?;
+    Ok(issues
+        .iter()
+        .filter(|i| i["key"] != key)
+        .map(|i| {
+            let key = i["key"].as_str().unwrap_or("").to_string();
+            Choice { id: key.clone(), key, name: i["fields"]["summary"].as_str().unwrap_or("").into(), note: String::new() }
+        })
+        .collect())
 }
 
 async fn jira_write(req: reqwest::RequestBuilder) -> Result<()> {
@@ -1018,6 +1144,7 @@ fn trello_card(conf: &TrelloConf, c: &Value, place: &str) -> Ticket {
         parent_key: String::new(),
         parent_title: String::new(),
         parent_url: String::new(),
+        sprint: String::new(),
         project_name: String::new(),
         project_url: String::new(),
         label_colors: BTreeMap::new(),
@@ -1213,7 +1340,8 @@ fn asana_tickets(conf: &AsanaConf, lists: &[(Value, String)]) -> Vec<Ticket> {
                 parent_key: String::new(),
                 parent_title: String::new(),
                 parent_url: String::new(),
-                project_name: String::new(),
+                sprint: String::new(),
+        project_name: String::new(),
                 project_url: String::new(),
                 label_colors: BTreeMap::new(),
                 // Full gid: a suffix collides across tasks, and the prefix
@@ -1356,7 +1484,7 @@ pub async fn linear_me(token: &str) -> Result<Value> {
 }
 
 /// What a Linear issue is read with, for a `Ticket`.
-const LINEAR_FIELDS: &str = "id identifier title description url priority priorityLabel state { name type } assignee { name isMe } team { name } labels(first: 10) { nodes { name color } } parent { identifier title url } project { name url }";
+const LINEAR_FIELDS: &str = "id identifier title description url priority priorityLabel state { name type } assignee { name isMe } team { name } labels(first: 10) { nodes { name color } } parent { identifier title url } project { name url } cycle { number name }";
 
 /// The issues `filter` finds, last updated first, at most `cap` of them.
 async fn linear_issues(token: &str, fields: &str, filter: Value, cap: usize) -> Result<Vec<Value>> {
@@ -1457,6 +1585,7 @@ fn linear_ticket(conf: &LinearConf, i: &Value) -> Ticket {
         parent_key: i["parent"]["identifier"].as_str().unwrap_or("").into(),
         parent_title: i["parent"]["title"].as_str().unwrap_or("").into(),
         parent_url: i["parent"]["url"].as_str().unwrap_or("").into(),
+        sprint: i["cycle"]["name"].as_str().filter(|n| !n.is_empty()).map(String::from).or_else(|| i["cycle"]["number"].as_u64().map(|n| format!("Cycle {n}"))).unwrap_or_default(),
         project_name: i["project"]["name"].as_str().unwrap_or("").into(),
         project_url: i["project"]["url"].as_str().unwrap_or("").into(),
         label_colors: i["labels"]["nodes"].as_array().into_iter().flatten().filter_map(|l| Some((l["name"].as_str()?.into(), l["color"].as_str()?.into()))).collect(),
@@ -1494,13 +1623,16 @@ pub async fn linear_set_status(token: &str, issue: &str, state: &str) -> Result<
 /// Linear's priorities, 0 being none, and the labels of the issue's team and workspace, groups first, one label per group.
 pub async fn linear_fields(token: &str, issue: &str) -> Result<FieldOptions> {
     const LABEL: &str = "nodes { id name color isGroup parent { name } }";
-    let query = format!("query($id: String!) {{ issue(id: $id) {{ team {{ labels(first: 250) {{ {LABEL} }} }} }} issueLabels(first: 250, filter: {{ team: {{ null: true }} }}) {{ {LABEL} }} }}");
+    let query = format!("query($id: String!) {{ issue(id: $id) {{ team {{ cyclesEnabled labels(first: 250) {{ {LABEL} }} }} }} issueLabels(first: 250, filter: {{ team: {{ null: true }} }}) {{ {LABEL} }} }}");
     let v = linear_gql(token, &query, json!({ "id": issue })).await?;
     let priorities = ["None", "Urgent", "High", "Medium", "Low"].iter().enumerate();
     Ok(FieldOptions {
         priorities: priorities.map(|(i, n)| FieldOption { id: i.to_string(), name: (*n).into(), color: String::new(), group: String::new() }).collect(),
         types: Vec::new(),
         labels: linear_label_options(&[&v["issue"]["team"]["labels"]["nodes"], &v["issueLabels"]["nodes"]]),
+        sprint: v["issue"]["team"]["cyclesEnabled"] == true,
+        parent: true,
+        estimate: false,
     })
 }
 
@@ -1527,6 +1659,12 @@ pub async fn linear_set_fields(token: &str, issue: &str, edit: &FieldEdit) -> Re
     if let Some(ids) = &edit.labels {
         input.insert("labelIds".into(), json!(ids));
     }
+    if let Some(c) = &edit.sprint {
+        input.insert("cycleId".into(), id_or_null(c));
+    }
+    if let Some(p) = &edit.parent {
+        input.insert("parentId".into(), id_or_null(p));
+    }
     if input.is_empty() {
         return Ok(());
     }
@@ -1535,6 +1673,42 @@ pub async fn linear_set_fields(token: &str, issue: &str, edit: &FieldEdit) -> Re
         return Err(Error::Http("Linear did not change the issue".into()));
     }
     Ok(())
+}
+
+/// The cycles of the issue's team that haven't ended, in order, the active one marked.
+pub async fn linear_cycle_choices(token: &str, issue: &str) -> Result<Vec<Choice>> {
+    let q = "query($id: String!) { issue(id: $id) { team { cycles(first: 50, filter: { isPast: { eq: false } }) { nodes { id number name isActive startsAt } } } } }";
+    let v = linear_gql(token, q, json!({ "id": issue })).await?;
+    Ok(linear_cycles_from(&v["issue"]["team"]["cycles"]["nodes"]))
+}
+
+fn linear_cycles_from(nodes: &Value) -> Vec<Choice> {
+    let mut cycles: Vec<&Value> = nodes.as_array().into_iter().flatten().collect();
+    cycles.sort_by_key(|c| c["number"].as_u64());
+    cycles
+        .into_iter()
+        .map(|c| Choice {
+            id: c["id"].as_str().unwrap_or("").into(),
+            key: String::new(),
+            name: c["name"].as_str().filter(|n| !n.is_empty()).map(String::from).unwrap_or_else(|| format!("Cycle {}", c["number"].as_u64().unwrap_or(0))),
+            note: if c["isActive"] == true { "Active".into() } else { jira_date(&c["startsAt"]).map(|d| format!("Starts {}", d.format("%b %-d"))).unwrap_or_default() },
+        })
+        .collect()
+}
+
+/// The open issues of the issue's team, last updated first, it left out.
+pub async fn linear_parent_choices(token: &str, issue: &str) -> Result<Vec<Choice>> {
+    // shortcut: the 250 last updated only; search Linear as the user types if a parent goes missing.
+    let q = r#"query($id: String!) { issue(id: $id) { id team { issues(first: 250, orderBy: updatedAt, filter: { state: { type: { nin: ["completed", "canceled"] } } }) { nodes { id identifier title } } } } }"#;
+    let v = linear_gql(token, q, json!({ "id": issue })).await?;
+    let me = &v["issue"]["id"];
+    Ok(v["issue"]["team"]["issues"]["nodes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|i| i["id"] != *me)
+        .map(|i| Choice { id: i["id"].as_str().unwrap_or("").into(), key: i["identifier"].as_str().unwrap_or("").into(), name: i["title"].as_str().unwrap_or("").into(), note: String::new() })
+        .collect())
 }
 
 /// The issue's comment threads, oldest first: each top-level comment with its replies.
@@ -1766,6 +1940,7 @@ pub fn github_ticket(i: &Value, repo: &str, me: &str) -> Ticket {
         parent_key: String::new(),
         parent_title: String::new(),
         parent_url: String::new(),
+        sprint: String::new(),
         project_name: String::new(),
         project_url: String::new(),
         label_colors: BTreeMap::new(),
@@ -3145,6 +3320,9 @@ mod tests {
         assert_eq!(got, want.map(|(s, p)| (s.to_string(), p.to_string())));
         let t = linear_ticket(&conf, &issue("Todo", "unstarted", 0));
         assert_eq!((t.key.as_str(), t.place.as_str(), t.mine), ("ENG-7", "Linear · Web", true));
+        let mut i = issue("Todo", "unstarted", 0);
+        i["cycle"] = json!({ "number": 12, "name": null });
+        assert_eq!(linear_ticket(&conf, &i).sprint, "Cycle 12");
     }
 
     #[test]
@@ -3229,6 +3407,23 @@ mod tests {
         assert_eq!(f.priorities.iter().map(|o| o.name.as_str()).collect::<Vec<_>>(), ["High", "Medium"]);
         assert_eq!((f.types[0].id.as_str(), f.types[0].name.as_str()), ("10001", "Bug"));
         assert!(jira_fields_from(&json!({ "fields": {} })).priorities.is_empty(), "no priority on the edit screen");
+        assert!(!f.sprint && !f.parent && !f.estimate, "none on the edit screen");
+        let meta = json!({ "fields": { "parent": {}, "timetracking": {}, "customfield_11004": { "schema": { "custom": "com.pyxis.greenhopper.jira:gh-sprint" } } } });
+        let f = jira_fields_from(&meta);
+        assert!(f.sprint && f.parent && f.estimate);
+    }
+
+    #[test]
+    fn open_sprint_and_sprint_choices() {
+        let sprint = |id: u64, state: &str, start: Option<&str>| json!({ "id": id, "name": format!("S{id}"), "state": state, "boardId": 3, "startDate": start });
+        let fields = json!({ "summary": "x", "labels": ["a"], "customfield_11004": [sprint(1, "closed", None), sprint(4, "future", None), sprint(2, "active", None)] });
+        assert_eq!(jira_open_sprint(&fields), "S2", "the active one before one to come");
+        assert_eq!(jira_open_sprint(&json!({ "customfield_11004": [sprint(1, "closed", None)] })), "", "only closed sprints");
+        let all = field_sprints(&json!([sprint(1, "closed", None), sprint(9, "future", None), sprint(7, "future", Some("2026-12-14T09:00:00.000Z")), sprint(5, "active", None)]));
+        let got: Vec<_> = sprint_choices(all).into_iter().map(|c| (c.id, c.note)).collect();
+        assert_eq!(got, [("5".into(), "Active".into()), ("7".into(), "Starts Dec 14".into()), ("9".into(), String::new())]);
+        let cycles = linear_cycles_from(&json!([{ "id": "b", "number": 8, "name": "", "isActive": false }, { "id": "a", "number": 7, "name": "Polish", "isActive": true }]));
+        assert_eq!(cycles.iter().map(|c| (c.name.as_str(), c.note.as_str())).collect::<Vec<_>>(), [("Polish", "Active"), ("Cycle 8", "")]);
     }
 
     #[test]

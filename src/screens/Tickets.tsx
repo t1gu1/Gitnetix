@@ -1,9 +1,9 @@
 import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
-import { useAction, useFixVersions, useOverview, useProjectPrefs, useProjects, useTagV, useTicketActivity, useTicketAssignees, useTicketComments, useTicketFields, useTicketStatuses, useTicket, useTickets } from "../api/hooks";
+import { useAction, useFixVersions, useOverview, useProjectPrefs, useProjects, useTagV, useTicketActivity, useTicketAssignees, useTicketChoices, useTicketComments, useTicketFields, useTicketStatuses, useTicket, useTickets } from "../api/hooks";
 import { openExternal, rpc } from "../api/transport";
-import type { BranchView, FieldOption, PrSummary, Suggestion, Ticket } from "../api/types";
+import type { BranchView, Choice, FieldOption, PrSummary, Suggestion, Ticket } from "../api/types";
 import { MenuChoice } from "../components/AgentPicker";
 import { Adf, type AdfNode } from "../components/Adf";
 import { Avatar } from "../components/Avatar";
@@ -429,6 +429,7 @@ function TicketDetail({
                   priority: v.priority ? nameOf(f?.priorities, v.priority) ?? x.priority : x.priority,
                   kind: v.kind ? nameOf(f?.types, v.kind) ?? x.kind : x.kind,
                   labels: v.labels ? v.labels.map((id) => nameOf(f?.labels, id) ?? id) : x.labels,
+                  ...v.shown,
                 }
               : x,
           ),
@@ -450,6 +451,15 @@ function TicketDetail({
   const done = t.criteria.filter((c) => c.done).length;
   const source = media ? pictures : null;
   const tracked = t.source === "jira" || t.source === "linear";
+  const cycle = t.source === "linear" ? "Cycle" : "Sprint";
+  const parent = t.parentKey ? (
+    <>
+      <span className="mono faint">{t.parentKey}</span>
+      <span className="ellipsis">{t.parentTitle}</span>
+    </>
+  ) : (
+    <span className="faint">No parent</span>
+  );
   const link = (href: string | undefined, title: string, text: ReactNode) =>
     href ? (
       <a className="ellipsis" href={href} title={title} onClick={(e) => { e.preventDefault(); openExternal(href); }}>{text}</a>
@@ -567,10 +577,55 @@ function TicketDetail({
               <dd><FixVersions t={t} /></dd>
             </div>
           )}
+          {tracked && (t.sprint || f?.sprint) && (
+            <div>
+              <dt><label htmlFor="tk-sprint">{cycle}</label></dt>
+              <dd>
+                {f?.sprint !== false ? (
+                  <PickOne
+                    t={t}
+                    kind="sprints"
+                    id="tk-sprint"
+                    label={cycle}
+                    value={t.sprint ?? ""}
+                    current={t.sprint || <span className="faint">No {cycle.toLowerCase()}</span>}
+                    none={t.source === "linear" ? "No cycle" : "Backlog, no sprint"}
+                    empty={`No open ${cycle.toLowerCase()}s`}
+                    saving={!!busy("sprint")}
+                    onPick={(c) => edit({ sprint: c?.id ?? "", shown: { sprint: c?.name ?? "" } })}
+                  />
+                ) : (
+                  <span className="ellipsis">{t.sprint}</span>
+                )}
+              </dd>
+            </div>
+          )}
           {tracked && (
             <div>
-              <dt>Parent</dt>
-              <dd>{link(t.parentKey && t.parentUrl, `Open ${t.parentKey} in ${SRC[t.source]}`, <><span className="mono faint">{t.parentKey}</span> {t.parentTitle}</>)}</dd>
+              <dt><label htmlFor="tk-parent">Parent</label></dt>
+              <dd className="tk-parent">
+                {f?.parent !== false ? (
+                  <PickOne
+                    t={t}
+                    kind="parents"
+                    id="tk-parent"
+                    label="Parent"
+                    value={t.parentKey ?? ""}
+                    current={parent}
+                    none="No parent"
+                    empty="No open issue can be its parent"
+                    saving={!!busy("parent")}
+                    onPick={(c) => edit({ parent: c?.id ?? "", shown: { parentKey: c?.key ?? "", parentTitle: c?.name ?? "", parentUrl: "" } })}
+                  />
+                ) : (
+                  <span className="menu-lead">{parent}</span>
+                )}
+                {t.parentKey && t.parentUrl && (
+                  <button className="btn btn-sm btn-icon" aria-label={`Open ${t.parentKey} in ${SRC[t.source]}`} data-tip={`Open ${t.parentKey} in ${SRC[t.source]}`} onClick={() => openExternal(t.parentUrl!)}>
+                    <Icon name="external" size={12} />
+                  </button>
+                )}
+              </dd>
             </div>
           )}
           {t.source === "linear" && (
@@ -579,12 +634,16 @@ function TicketDetail({
               <dd>{link(t.projectName && t.projectUrl, `Open ${t.projectName} in Linear`, t.projectName)}</dd>
             </div>
           )}
+          {t.source === "jira" && (t.timeEstimate || f?.estimate) && (
+            <div>
+              <dt><label htmlFor="tk-estimate">Estimate</label></dt>
+              <dd>{f?.estimate !== false ? <Estimate key={`${t.key}:${t.timeEstimate}`} value={t.timeEstimate ?? ""} saving={!!busy("estimate")} onSave={(estimate) => edit({ estimate, shown: { timeEstimate: estimate } })} /> : t.timeEstimate}</dd>
+            </div>
+          )}
           {t.source === "jira" && (
             <div>
               <dt>Time left</dt>
-              <dd className={t.timeRemaining || t.timeEstimate ? "" : "faint"}>
-                {t.timeRemaining && t.timeEstimate ? `${t.timeRemaining} of ${t.timeEstimate}` : t.timeRemaining || (t.timeEstimate ? `? of ${t.timeEstimate}` : "Not estimated")}
-              </dd>
+              <dd className={t.timeRemaining ? "" : "faint"}>{t.timeRemaining || "Not estimated"}</dd>
             </div>
           )}
           <div>
@@ -753,7 +812,8 @@ function WorkLine({
   );
 }
 
-type Edit = { priority?: string; kind?: string; labels?: string[] };
+/** `shown`: what the ticket shows until the list comes back from the tracker; the engine ignores it. */
+type Edit = { priority?: string; kind?: string; labels?: string[]; sprint?: string; parent?: string; estimate?: string; shown?: Partial<Ticket> };
 
 /** A field's menu: its current value, then the others to switch to; `busy` stands in for the value while it saves. `lead`: its
  * mark (status ring, priority bars) inside the menu, before the value. */
@@ -769,6 +829,92 @@ function FieldMenu({ id, label, lead, mark, current, options, busy, onPick }: { 
       value=""
       options={[{ value: "", label: busy ?? current, lead }, ...options.filter((o) => o.name !== current).map((o) => ({ value: o.id, label: o.name, lead: mark?.(o) }))]}
       onChange={(v) => v && onPick(v)}
+    />
+  );
+}
+
+/**
+ * One sprint, cycle or parent, read when its menu opens, or none (`onPick()`). `value`: the name of the ticket's sprint
+ * or its parent's key, to tick it; `current` shows it on the button.
+ */
+function PickOne(p: { t: Ticket; kind: "sprints" | "parents"; id: string; label: string; value: string; current: ReactNode; none: string; empty: string; saving: boolean; onPick: (c?: Choice) => void }) {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const q = useTicketChoices(p.t, p.kind, !!menu);
+  const list = q.data ?? [];
+  const tick = <Icon name="check" size={13} />;
+  const note = (text: string) => ({ id: "note", label: text, icon: null, disabled: true, run: () => {} });
+  return (
+    <>
+      <button
+        id={p.id}
+        className="select menu-select"
+        aria-haspopup="menu"
+        aria-label={p.label}
+        onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          setMenu({ x: r.left, y: r.bottom + 2 });
+        }}
+      >
+        <span className="menu-lead">{p.saving ? "Saving…" : p.current}</span>
+        <Icon name="chevronDown" size={10} />
+      </button>
+      {menu && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          label={p.label}
+          search={list.length > SEARCH_ABOVE ? `Filter by ${p.kind === "parents" ? "key or title" : "name"}` : undefined}
+          onClose={() => setMenu(null)}
+          items={
+            q.isLoading
+              ? [note("Loading…")]
+              : q.error
+                ? [note(q.error.message)]
+                : [
+                    ...(list.length ? [] : [note(p.empty)]),
+                    ...list.map((c) => {
+                      const on = (c.key || c.name) === p.value;
+                      return {
+                        id: c.id,
+                        label: c.key ? <span className="menu-lead"><span className="mono faint">{c.key}</span><span className="ellipsis">{c.name}</span></span> : c.name,
+                        text: c.key ? `${c.key} ${c.name}` : c.name,
+                        icon: null,
+                        hint: on ? tick : c.note && <span className="faint">{c.note}</span>,
+                        run: () => !on && p.onPick(c),
+                      };
+                    }),
+                    "sep" as const,
+                    { id: "\0none", label: p.none, icon: null, hint: !p.value && tick, run: () => p.value && p.onPick() },
+                  ]
+          }
+        />
+      )}
+    </>
+  );
+}
+
+/** The Jira original estimate as Jira writes it ("2d 4h"), saved on Enter or when it loses focus; Escape puts it back. */
+function Estimate({ value, saving, onSave }: { value: string; saving: boolean; onSave: (v: string) => void }) {
+  const [draft, setDraft] = useState(value);
+  const save = () => {
+    const v = draft.trim();
+    if (!v) setDraft(value);
+    else if (v !== value) onSave(v);
+  };
+  return (
+    <input
+      id="tk-estimate"
+      className="input"
+      value={saving ? "Saving…" : draft}
+      disabled={saving}
+      placeholder="Not estimated, e.g. 2d 4h"
+      spellCheck={false}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={save}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+        if (e.key === "Escape") setDraft(value);
+      }}
     />
   );
 }

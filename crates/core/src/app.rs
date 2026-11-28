@@ -5093,8 +5093,10 @@ impl Gitnetix {
         Ok(out.join(if content.contains("\r\n") { "\r\n" } else { "\n" }))
     }
 
-    /// AI's fixes for conflicted `files` in `git`'s checkout, a few asked at a time. `ctl`'s run counts each answer.
+    /// AI's fixes for conflicted `files` in `git`'s checkout, `AT_ONCE` asked at a time. `ctl`'s run counts each answer.
     async fn ask_fixes(&self, p: &Project, git: &Git, files: &[String], ours: &str, theirs: &str, ctl: Option<&RunCtl>) -> Vec<(String, Result<Fix>)> {
+        // Each file is its own call on its own text, so none waits on another's answer: 6 files took two rounds at 3 (AI-19).
+        const AT_ONCE: usize = 6;
         // A rebase run shows its own progress.
         if ctl.is_none() {
             let _ = self.events.send(Event::ConflictResolving { project_id: p.id.clone(), files: files.to_vec() });
@@ -5120,7 +5122,7 @@ impl Gitnetix {
                     counted(&r);
                     (f, r)
                 })
-                .buffer_unordered(3)
+                .buffer_unordered(AT_ONCE)
                 .collect()
                 .await,
         );
@@ -5146,7 +5148,7 @@ impl Gitnetix {
                     };
                     (f, r)
                 })
-                .buffer_unordered(3)
+                .buffer_unordered(AT_ONCE)
                 .collect()
                 .await,
         );
@@ -8408,6 +8410,25 @@ impl Gitnetix {
         }
     }
 
+    /// The sprints (Linear: cycles) a Jira or Linear ticket can move to, or with `parents`, the issues it can go under.
+    pub async fn ticket_choices(&self, source: &str, conn: &str, id: &str, parents: bool) -> Result<Vec<tickets::Choice>> {
+        let integ = self.store.read(|c| c.integrations.clone());
+        let missing = || Error::NotConnected(source.into());
+        match source {
+            "jira" => {
+                let j = integ.jira.iter().find(|j| j.id == conn).ok_or_else(missing)?;
+                let tok = tickets::jira_auth::token(j).await?;
+                if parents { tickets::jira_parent_choices(j, &tok, id).await } else { tickets::jira_sprint_choices(j, &tok, id).await }
+            }
+            "linear" => {
+                let l = integ.linear.iter().find(|l| l.id == conn).ok_or_else(missing)?;
+                let tok = tickets::linear_token(l).await?;
+                if parents { tickets::linear_parent_choices(&tok, id).await } else { tickets::linear_cycle_choices(&tok, id).await }
+            }
+            other => Err(Error::Invalid(format!("{other} tickets have no sprint or parent to set here"))),
+        }
+    }
+
     /// Ticket `id`'s comments, oldest first; Linear's threads with their replies.
     pub async fn ticket_comments(&self, source: &str, conn: &str, id: &str) -> Result<Vec<tickets::TicketComment>> {
         let integ = self.store.read(|c| c.integrations.clone());
@@ -9349,7 +9370,7 @@ async fn copy_worktree_files(store: &Store, p: &Project, path: &Path) {
             if !from.exists() || to.symlink_metadata().is_ok() || through_link(&dir, Path::new(&f)) {
                 continue;
             }
-            let res = to.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| if is_link { link(&from, &to) } else { copy_tree(&from, &to) });
+            let res = to.parent().map_or(Ok(()), std::fs::create_dir_all).and_then(|_| if is_link { link(&from, &from, &to) } else { copy_tree(&from, &to) });
             match res {
                 Ok(()) if is_link => linked.push(f),
                 Ok(()) => {}
@@ -9376,18 +9397,22 @@ fn through_link(root: &Path, rel: &Path) -> bool {
     })
 }
 
-/// A link at `to` to `target`, so the worktree reads and writes the main checkout's.
-fn link(target: &Path, to: &Path) -> std::io::Result<()> {
+/// A link at `to` to `target`, so the worktree reads and writes the main checkout's. `real` is the main checkout's
+/// path that `target` stands for: `target` can be relative to the link's folder, which Windows needs resolved.
+fn link(target: &Path, real: &Path, to: &Path) -> std::io::Result<()> {
     #[cfg(unix)]
-    return std::os::unix::fs::symlink(target, to);
+    {
+        let _ = real;
+        std::os::unix::fs::symlink(target, to)
+    }
     #[cfg(windows)]
     {
         use std::os::windows::fs::{symlink_dir, symlink_file};
-        let dir = target.is_dir();
+        let dir = real.is_dir();
         match if dir { symlink_dir(target, to) } else { symlink_file(target, to) } {
             // ERROR_PRIVILEGE_NOT_HELD: symlinks need Developer Mode or admin. A hard link needs neither, and the
-            // worktree sits next to the main checkout, on its drive.
-            Err(e) if e.raw_os_error() == Some(1314) && !dir => std::fs::hard_link(target, to),
+            // worktree sits next to the main checkout, on its drive. Canonical: a hard link to a link isn't followed.
+            Err(e) if e.raw_os_error() == Some(1314) && !dir => std::fs::hard_link(std::fs::canonicalize(real)?, to),
             Err(e) if e.raw_os_error() == Some(1314) => Err(std::io::Error::other("Windows needs Developer Mode on to link folders")),
             r => r,
         }
@@ -9426,8 +9451,8 @@ fn copy_tree(from: &Path, to: &Path) -> std::io::Result<()> {
             copy_tree(&e.path(), &to.join(e.file_name()))?;
         }
     } else if kind.is_symlink() {
-        #[cfg(unix)]
-        std::os::unix::fs::symlink(std::fs::read_link(from)?, to)?;
+        // Same target text, so a relative link inside a copied folder points into the copy.
+        link(&std::fs::read_link(from)?, from, to)?;
     } else {
         std::fs::copy(from, to)?;
     }

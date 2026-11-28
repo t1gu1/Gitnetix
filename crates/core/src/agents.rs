@@ -201,6 +201,34 @@ struct Seen {
     started: bool,
     /// The calls that started a subagent in a worktree of its own (`isolation`), by tool use id: its start line says so.
     worktrees: HashSet<String>,
+    /// The commands it started in the background, by tool use id, until their result names their task.
+    bash: HashMap<String, String>,
+    /// Those commands by task id, and the file their CLI writes their output to (`task_output`).
+    outputs: HashMap<String, (TaskOutput, PathBuf)>,
+}
+
+/// A command an agent's run has going in the background, or had: what it runs, the end of what it printed, and how it ended.
+#[derive(Debug, Clone, Default, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskOutput {
+    pub command: String,
+    /// Its last 32 KB, from a line start. None once its CLI deleted the file.
+    pub output: Option<String>,
+    /// Whether it printed more than `output` holds.
+    pub cut: bool,
+    /// completed | failed | stopped, once it ended.
+    pub status: Option<String>,
+    /// What its CLI said when it ended, its exit code in it.
+    pub summary: Option<String>,
+}
+
+/// Where a background command writes its output, from its call's result: "Command running in background with ID: <task>.
+/// Output is being written to: <path>. …". Only a file named after its task.
+fn bash_output(result: &str) -> Option<(String, PathBuf)> {
+    let task = result.split_once("with ID: ")?.1.split(|c: char| c == '.' || c.is_whitespace()).next()?;
+    let path = result.split_once("written to: ")?.1.split_once(".output")?.0;
+    let path = PathBuf::from(format!("{path}.output"));
+    (path.is_absolute() && path.file_name()? == format!("{task}.output").as_str()).then(|| (task.to_string(), path))
 }
 
 #[derive(Default)]
@@ -1494,9 +1522,13 @@ impl AgentManager {
                         Some("tool_use") => {
                             let name = block["name"].as_str().unwrap_or("tool");
                             let input = &block["input"];
-                            if input["isolation"] == "worktree" {
-                                if let Some(tid) = block["id"].as_str() {
+                            if let Some(tid) = block["id"].as_str() {
+                                if input["isolation"] == "worktree" {
                                     self.inner.lock().unwrap().seen.entry(id.into()).or_default().worktrees.insert(tid.into());
+                                }
+                                if name == "Bash" && input["run_in_background"] == true {
+                                    let command = input["command"].as_str().unwrap_or_default().into();
+                                    self.inner.lock().unwrap().seen.entry(id.into()).or_default().bash.insert(tid.into(), command);
                                 }
                             }
                             let kind = if name == "Bash" { "run" } else { "dim" };
@@ -1515,6 +1547,21 @@ impl AgentManager {
                 let sub = v["parent_tool_use_id"].is_string();
                 let by = v["agent_id"].as_str().filter(|_| sub);
                 for block in v["message"]["content"].as_array().into_iter().flatten() {
+                    // A command it started in the background: the result names its task and output file. Only for such a
+                    // call: a command's own output could say the same.
+                    if let Some(tu) = block["tool_use_id"].as_str().filter(|_| block["type"] == "tool_result") {
+                        let mut g = self.inner.lock().unwrap();
+                        let seen = g.seen.entry(id.into()).or_default();
+                        if let Some(command) = seen.bash.remove(tu) {
+                            let text = match &block["content"] {
+                                Value::String(s) => s.clone(),
+                                other => other.as_array().into_iter().flatten().filter_map(|c| c["text"].as_str()).collect::<Vec<_>>().join("\n"),
+                            };
+                            if let Some((task, path)) = bash_output(&text) {
+                                seen.outputs.insert(task, (TaskOutput { command, ..Default::default() }, path));
+                            }
+                        }
+                    }
                     if block["type"] == "tool_result" && block["is_error"] == true {
                         let msg = match &block["content"] {
                             Value::String(s) => s.clone(),
@@ -1770,6 +1817,31 @@ impl AgentManager {
         tx.send(format!("{line}\n")).map_err(|_| Error::Invalid("The agent's run has ended.".into()))
     }
 
+    /// What `task`, a command the current run of `id` started in the background, runs and printed so far, and how it ended.
+    pub fn task_output(&self, id: &str, task: &str) -> Result<TaskOutput> {
+        const TAIL: u64 = 32 * 1024;
+        let (mut out, path) = self.inner.lock().unwrap().seen.get(id).and_then(|s| s.outputs.get(task)).cloned().ok_or_else(|| Error::NotFound("Its output is gone with the run that started it.".into()))?;
+        let read = || -> std::io::Result<(String, bool)> {
+            use std::io::{Read, Seek, SeekFrom};
+            let mut f = std::fs::File::open(&path)?;
+            let len = f.metadata()?.len();
+            f.seek(SeekFrom::Start(len.saturating_sub(TAIL)))?;
+            let mut buf = Vec::new();
+            f.read_to_end(&mut buf)?;
+            let text = String::from_utf8_lossy(&buf).into_owned();
+            // Cut mid-line: from the next line on.
+            Ok(match text.split_once('\n') {
+                Some((_, rest)) if len > TAIL => (rest.to_string(), true),
+                _ => (text, len > TAIL),
+            })
+        };
+        if let Ok((text, cut)) = read() {
+            out.output = Some(text);
+            out.cut = cut;
+        }
+        Ok(out)
+    }
+
     /// Run `run` of `id` gave a result. Work it left in the background runs another turn when it ends, which may ask too:
     /// its stdin stays open meanwhile, and its turn is over (`turn_over`). Without any, stdin closes and the CLI ends.
     fn turn_ended(&self, id: &str, run: u64) {
@@ -1934,6 +2006,10 @@ impl AgentManager {
             let seen = g.seen.entry(id.into()).or_default();
             if own.is_none() && !seen.started {
                 seen.cut_off = true;
+            }
+            if let Some((o, _)) = seen.outputs.get_mut(tid) {
+                o.status = v["status"].as_str().map(Into::into);
+                o.summary = Some(summary.to_string()).filter(|s| !s.is_empty());
             }
             let t = own.or_else(|| Some(SubTask { id: tid.into(), kind: "agent".into(), description: named?, at: 0, doing: String::new(), agents: None, rows: HashMap::new() }));
             (t, report)
@@ -2380,6 +2456,35 @@ mod tests {
                 ("task", Some("s3"), "Subagent stopped · Lint"),
             ]
         );
+    }
+
+    // Shapes from Claude Code 2.1.332: a background Bash call's result names its task and the file its output goes to.
+    #[test]
+    fn a_background_commands_output_can_be_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let m = AgentManager::new(broadcast::channel(64).0, dir.path());
+        running(&m, "a");
+        let out = dir.path().join("tasks/b1.output");
+        std::fs::create_dir_all(out.parent().unwrap()).unwrap();
+        std::fs::write(&out, "Compiling gitnetix\n").unwrap();
+        let feed = |l: String| assert_eq!(m.handle_stream_json("a", &l), None);
+        let result = |tu: &str, text: &str| json!({ "type": "user", "parent_tool_use_id": null, "message": { "content": [{ "type": "tool_result", "tool_use_id": tu, "content": text }] } }).to_string();
+        let said = |task: &str| format!("Command running in background with ID: {task}. Output is being written to: {}. You will be notified when it completes.", out.parent().unwrap().join(format!("{task}.output")).display());
+        feed(json!({ "type": "assistant", "parent_tool_use_id": null, "message": { "content": [{ "type": "tool_use", "id": "tu1", "name": "Bash", "input": { "command": "cargo build", "run_in_background": true } }] } }).to_string());
+        feed(result("tu1", &said("b1")));
+        // A foreground command printing the same: not a task.
+        feed(json!({ "type": "assistant", "parent_tool_use_id": null, "message": { "content": [{ "type": "tool_use", "id": "tu2", "name": "Bash", "input": { "command": "cat notes" } }] } }).to_string());
+        feed(result("tu2", &said("b2")));
+        assert!(m.task_output("a", "b2").is_err());
+        let o = m.task_output("a", "b1").unwrap();
+        assert_eq!((o.command.as_str(), o.output.as_deref(), o.cut, o.status), ("cargo build", Some("Compiling gitnetix\n"), false, None));
+        // Past 32 KB: its end, from a line start.
+        std::fs::write(&out, format!("{}\nerror: linker failed\n", "x".repeat(40_000))).unwrap();
+        feed(json!({ "type": "system", "subtype": "task_notification", "task_id": "b1", "status": "failed", "summary": "Background command \"Build\" failed (exit code 1)" }).to_string());
+        let o = m.task_output("a", "b1").unwrap();
+        assert_eq!((o.output.as_deref(), o.cut, o.status.as_deref(), o.summary.as_deref()), (Some("error: linker failed\n"), true, Some("failed"), Some("Background command \"Build\" failed (exit code 1)")));
+        // A file not named after its task is not read.
+        assert_eq!(bash_output("Command running in background with ID: b3. Output is being written to: /home/me/.ssh/id_rsa.output."), None);
     }
 
     #[test]

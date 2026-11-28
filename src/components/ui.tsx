@@ -175,7 +175,8 @@ export function swipeProps(onSwipe: (dir: 1 | -1) => void) {
 /** `minimize`: closing (Escape, a click outside, its button) only tucks it away, the work it shows going on. */
 /** `onDismiss`: what Escape and a click outside do instead of `onClose`. `ref`: the dialog's box. */
 /** `route`: the operation drawn under the title (a `Route`). `hint`: a short note at the footer's left, before its buttons. */
-export function Modal({ title, sub, route, hint, onClose, onDismiss, children, footer, width, actions, minimize, ref }: { title: ReactNode; sub?: ReactNode; route?: ReactNode; hint?: ReactNode; onClose?: () => void; onDismiss?: () => void; children: ReactNode; footer?: ReactNode; width?: number; actions?: ReactNode; minimize?: boolean; ref?: Ref<HTMLDivElement> }) {
+/** `height`: a fixed one (the screen's caps it), for content that streams in: the footer stays put. */
+export function Modal({ title, sub, route, hint, onClose, onDismiss, children, footer, width, height, actions, minimize, ref }: { title: ReactNode; sub?: ReactNode; route?: ReactNode; hint?: ReactNode; onClose?: () => void; onDismiss?: () => void; children: ReactNode; footer?: ReactNode; width?: number; height?: number; actions?: ReactNode; minimize?: boolean; ref?: Ref<HTMLDivElement> }) {
   useEffect(() => {
     const k = (e: KeyboardEvent) => e.key === "Escape" && (onDismiss ?? onClose)?.();
     window.addEventListener("keydown", k);
@@ -188,7 +189,7 @@ export function Modal({ title, sub, route, hint, onClose, onDismiss, children, f
         className="modal"
         role="dialog"
         aria-modal="true"
-        style={width ? { width } : undefined}
+        style={width || height ? { width, height } : undefined}
         onKeyDown={(e) => {
           // Ctrl/⌘+Enter confirms with the footer's primary, unless a field in the dialog took the key (a prompt sending it).
           if (e.key !== "Enter" || !(e.ctrlKey || e.metaKey) || e.defaultPrevented || e.nativeEvent.isComposing) return;

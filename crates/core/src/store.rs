@@ -12,7 +12,8 @@ use serde::{Deserialize, Serialize};
 use crate::error::{Error, Result};
 use crate::templates::{default_templates, Template, OLD_BODIES};
 
-pub const CONFIG_VERSION: u32 = 1;
+/// 2: conflicts left on the first default route moved to Sonnet 5.5 at medium effort (see `parse`).
+pub const CONFIG_VERSION: u32 = 2;
 
 /// Copied into every new worktree unless removed: ignored files a fresh checkout lacks.
 /// A knowledge graph (graphify), Claude Code's local settings, local environment variables and their examples.
@@ -358,7 +359,8 @@ impl Default for AiConfig {
         routing.insert("pr".into(), r("claude-sonnet-5-5", "medium"));
         routing.insert("ticket".into(), r("claude-sonnet-5-5", "medium"));
         routing.insert("release".into(), r("claude-sonnet-5-5", "medium"));
-        routing.insert("conflict".into(), r("claude-opus-5-5", "high"));
+        // As right as Opus 5.5 at high effort in the conflict benchmark (AI-13 to AI-21), and 23 to 41% faster.
+        routing.insert("conflict".into(), r("claude-sonnet-5-5", "medium"));
         routing.insert("agent".into(), r("claude-opus-5-5", "xhigh"));
         routing.insert("triage".into(), r("claude-haiku-5-5", "low"));
         routing.insert("dictation".into(), r("claude-haiku-5-5", "low"));
@@ -733,6 +735,15 @@ fn parse(raw: &str) -> Result<Config> {
             }
         }
     }
+    // Conflicts still on the first default route get today's, once: one picked again later stays.
+    if cfg.version < 2 {
+        let first = Route { provider: Some("claude".into()), model: Some("claude-opus-5-5".into()), effort: Some("high".into()), permission: None, ultracode: None };
+        if cfg.ai.routing.get("conflict") == Some(&first) {
+            cfg.ai.routing.insert("conflict".into(), AiConfig::default().routing["conflict"].clone());
+        }
+    }
+    // Never lowered: a newer version's own upgrades must not run again.
+    cfg.version = cfg.version.max(CONFIG_VERSION);
     Ok(cfg)
 }
 
@@ -1061,6 +1072,27 @@ mod tests {
         assert_eq!(cfg.projects[1].agent.provider.as_deref(), Some("claude"), "a pick already on the project wins");
         assert!(!cfg.ui.view.keys().any(|k| k.starts_with("gnx.agentPick.")));
         assert_eq!(cfg.ui.view.get("gnx.tickets.mine").map(String::as_str), Some("true"));
+    }
+
+    #[test]
+    fn conflicts_left_on_the_first_default_route_move_to_todays_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let conflict = || super::Store::open(dir.path()).unwrap().read(|c| c.ai.routing.get("conflict").map(|r| format!("{} {}", r.model.as_deref().unwrap_or(""), r.effort.as_deref().unwrap_or(""))));
+        let saved = |version: u32, effort: &str| {
+            let cfg = serde_json::json!({ "version": version, "ai": { "routing": { "conflict": { "provider": "claude", "model": "claude-opus-5-5", "effort": effort } } } });
+            std::fs::write(dir.path().join("config.json"), cfg.to_string()).unwrap();
+        };
+        assert_eq!(conflict().as_deref(), Some("claude-sonnet-5-5 medium"), "a new config starts on today's route");
+        saved(1, "high");
+        assert_eq!(conflict().as_deref(), Some("claude-sonnet-5-5 medium"), "left on the first default: moved");
+        // Picked again once moved: the file now says version 2, so it stays.
+        let opus = super::Route { provider: Some("claude".into()), model: Some("claude-opus-5-5".into()), effort: Some("high".into()), ..Default::default() };
+        super::Store::open(dir.path()).unwrap().write(|c| Ok(c.ai.routing.insert("conflict".into(), opus))).unwrap();
+        assert_eq!(conflict().as_deref(), Some("claude-opus-5-5 high"));
+        saved(1, "xhigh");
+        assert_eq!(conflict().as_deref(), Some("claude-opus-5-5 xhigh"), "picked by hand before the move: kept");
+        saved(9, "high");
+        assert_eq!(super::Store::open(dir.path()).unwrap().read(|c| c.version), 9, "a newer version's number stays");
     }
 
     #[test]

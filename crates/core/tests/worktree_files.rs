@@ -18,6 +18,53 @@ async fn call(k: &Gitnetix, m: &str, p: Value) -> Value {
     }
 }
 
+fn symlink(target: &Path, at: &Path, dir: bool) {
+    #[cfg(unix)]
+    let _ = dir;
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(target, at).unwrap();
+    #[cfg(windows)]
+    if dir { std::os::windows::fs::symlink_dir(target, at).unwrap() } else { std::os::windows::fs::symlink_file(target, at).unwrap() }
+}
+
+#[tokio::test]
+async fn listed_files_that_are_links_in_the_main_checkout_reach_new_worktrees() {
+    let tmp = tempfile::tempdir().unwrap();
+    let app = tmp.path().join("app");
+    let (outside, out_graph) = (tmp.path().join("claude-shared"), tmp.path().join("graph-shared"));
+    for d in [&app, &outside, &out_graph] {
+        std::fs::create_dir_all(d).unwrap();
+    }
+    std::fs::write(outside.join("settings.json"), "{\"hooks\":{}}").unwrap();
+    std::fs::write(out_graph.join("graph.json"), "{}").unwrap();
+    sh(&app, &["init", "-q", "-b", "main"]);
+    for (k, v) in [("user.email", "t@example.com"), ("user.name", "Test"), ("commit.gpgsign", "false"), ("core.autocrlf", "false"), ("core.longpaths", "true")] {
+        sh(&app, &["config", k, v]);
+    }
+    std::fs::write(app.join(".gitignore"), ".claude/settings.local.json\ngraphify-out\ngraph/\n").unwrap();
+    sh(&app, &["add", "."]);
+    sh(&app, &["commit", "-qm", "init"]);
+    // Listed paths that are links themselves (a file, a folder), and a relative link inside a listed folder.
+    std::fs::create_dir_all(app.join(".claude")).unwrap();
+    symlink(&outside.join("settings.json"), &app.join(".claude/settings.local.json"), false);
+    symlink(&out_graph, &app.join("graphify-out"), true);
+    std::fs::create_dir_all(app.join("graph")).unwrap();
+    std::fs::write(app.join("graph/graph.json"), "main").unwrap();
+    symlink(Path::new("graph.json"), &app.join("graph/latest.json"), false);
+
+    let k = Gitnetix::open(&tmp.path().join("home")).unwrap();
+    let pid = call(&k, "projects.add", json!({ "paths": [app.to_string_lossy()] })).await[0]["id"].as_str().unwrap().to_string();
+    call(&k, "projects.setPrefs", json!({ "projectId": pid, "worktreeFiles": ["graph/"] })).await;
+    let wt = call(&k, "worktrees.create", json!({ "projectId": pid, "branch": "feat/x" })).await["path"].as_str().unwrap().to_string();
+    let wt = Path::new(&wt);
+    assert_eq!(std::fs::read_to_string(wt.join(".claude/settings.local.json")).unwrap(), "{\"hooks\":{}}", "the linked settings file");
+    assert_eq!(std::fs::read_to_string(wt.join("graphify-out/graph.json")).unwrap(), "{}", "the linked folder");
+    // The relative link points into the worktree's copy, not back at the main checkout.
+    assert_eq!(std::fs::read_link(wt.join("graph/latest.json")).unwrap(), Path::new("graph.json"));
+    std::fs::write(wt.join("graph/graph.json"), "worktree").unwrap();
+    assert_eq!(std::fs::read_to_string(wt.join("graph/latest.json")).unwrap(), "worktree");
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn files_are_never_copied_through_a_link_the_branch_holds() {

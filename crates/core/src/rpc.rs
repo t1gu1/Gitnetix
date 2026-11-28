@@ -184,7 +184,7 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("tickets.setStatus", "Move a ticket to one of tickets.statuses", "source, conn, id, to"),
     ("tickets.assignees", "People a ticket can be assigned to (id, name): Jira assignable users, Trello board members, Asana workspace users, Linear team members, GitHub assignable users", "source, conn, id"),
     ("tickets.setAssignee", "Assign a ticket to one of tickets.assignees, or to nobody when to is empty; on Trello and GitHub that one becomes its only member or assignee", "source, conn, id, to"),
-    ("tickets.fields", "Priorities, issue types and labels a Jira or Linear ticket can be set to (Jira: priorities and types; Linear: priorities and labels); empty for the other trackers", "source, conn, id"),
+    ("tickets.fields", "Priorities, issue types and labels a Jira or Linear ticket can be set to (Jira: priorities and types; Linear: priorities and labels), and whether its sprint or cycle, parent and original estimate can change; empty for the other trackers", "source, conn, id"),
     ("tickets.comments", "A ticket's comments, oldest first (id, author, body as Markdown, doc for Jira's ADF, createdAt, replies: a Linear thread's replies under its first comment, reactions: [{key, emoji?, count, mine, people?}] on Linear, GitHub and Trello)", "source, conn, id"),
     ("tickets.activity", "When a ticket was opened and by whom, and since when it has had its status (createdAt?, createdBy, statusAt?; empty when the tracker doesn't say)", "source, conn, id"),
     ("tickets.comment", "Post a comment on a ticket (Markdown; plain text on Asana; Jira's links become links) with files uploaded to the tracker and linked under the text (GitHub's API takes no files); with parentId (the id of a Linear thread's first comment from tickets.comments), a reply in that thread", "source, conn, id, body, parentId?, files?: [{name, data (base64) | path}]"),
@@ -192,7 +192,9 @@ pub const METHODS: &[(&str, &str, &str)] = &[
     ("tickets.picture", "A picture in a ticket that needs the tracker's sign-in (a Jira attachment's name or link, a Trello attachment, a Linear upload, a private GitHub picture), as a data: URL", "source, conn, id, url"),
     ("tickets.files", "A ticket's files (id, name, size?): Jira, Trello and Asana attachments, the files uploaded in a Linear or GitHub ticket's description and comments", "source, conn, id"),
     ("tickets.file", "A ticket's file by its id from tickets.files, as a data: URL (25 MB at most)", "source, conn, id, file"),
-    ("tickets.setFields", "Set a Jira or Linear ticket's priority, type or labels to ids from tickets.fields; labels replaces every label, a missing field stays as it is", "source, conn, id, priority?, kind?, labels?"),
+    ("tickets.setFields", "Set a Jira or Linear ticket's priority, type or labels to ids from tickets.fields, its sprint or cycle and parent to ids from tickets.sprints and tickets.parents (\"\" clears them), or its Jira original estimate (\"2d 4h\"); labels replaces every label, a missing field stays as it is", "source, conn, id, priority?, kind?, labels?, sprint?, parent?, estimate?"),
+    ("tickets.sprints", "Open sprints of a Jira ticket's project, or cycles of a Linear ticket's team that haven't ended, active first", "source, conn, id"),
+    ("tickets.parents", "Open issues a Jira or Linear ticket can go under: for Jira, its project's issues one level up (epics for a story)", "source, conn, id"),
     ("jira.versions", "Versions a Jira ticket's fix version can be set to", "id (connection), key"),
     ("jira.setFixVersions", "Set a Jira ticket's fix versions to exactly these version ids; empty clears them", "id (connection), key, versions"),
     ("integrations.save", "Connect GitHub, Azure DevOps (token = personal access token, config.org), GitLab (config.url = self-managed server), Bitbucket (config.email = Atlassian account of an API token), Gitea (config.url), Jira, Trello, Asana or Linear (token = personal API key, config.teams = team keys); a GitLab, Bitbucket or Gitea token is checked with the server first; a Jira, Trello, Asana or Linear config without id adds a connection", "kind, config?, token?"),
@@ -984,6 +986,8 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
             k.agents.stop_task(&s(&p, "id")?, &s(&p, "task")?)?;
             ok()
         }
+        // Not in METHODS: it reads what another agent's commands printed.
+        "agents.taskOutput" => to(k.agents.task_output(&s(&p, "id")?, &s(&p, "task")?)?),
         "agents.remove" => {
             k.remove_agent(&s(&p, "id")?).await?;
             ok()
@@ -1356,6 +1360,8 @@ async fn dispatch(k: &Gitnetix, method: &str, p: Value) -> Result<Value> {
         "tickets.picture" => to(k.ticket_picture(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, &s(&p, "url")?).await?),
         "tickets.files" => to(k.ticket_files(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?).await?),
         "tickets.file" => to(k.ticket_file(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, &s(&p, "file")?).await?),
+        "tickets.sprints" => to(k.ticket_choices(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, false).await?),
+        "tickets.parents" => to(k.ticket_choices(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, true).await?),
         "tickets.setFields" => {
             let edit: crate::tickets::FieldEdit = serde_json::from_value(p.clone())?;
             k.ticket_fields(&s(&p, "source")?, &os(&p, "conn").unwrap_or_default(), &s(&p, "id")?, Some(&edit)).await?;

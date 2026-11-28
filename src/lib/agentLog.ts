@@ -125,6 +125,19 @@ export function lastOwn(list: Block[]) {
 /** Whether the agent's turn is over: it waits for you, or for you or its background work while that goes on. */
 export const yourTurn = (lines: LogLine[]) => lastOwn(blocks(lines))?.kind === "wait";
 
+/** Your message `text` for subagent `id` ("Fix card padding"), as the agent gets it: it passes it on with Claude Code's SendMessage. */
+export const toSub = (id: string, name: string, text: string) => `For the subagent "${name}" (SendMessage to: ${id}):\n\n${text}`;
+const TO_SUB = /^(› )For the subagent "[^\n]*" \(SendMessage to: ([^)\s]+)\):\n\n/;
+
+/** Subagent `b`'s lines with your messages to it (`toSub`) among them, by time, as yours alone. */
+export function withYours(b: SubBlock, lines: LogLine[]): LogLine[] {
+  const yours = lines.flatMap((l) => {
+    const m = l.kind === "cmd" ? TO_SUB.exec(l.text) : null;
+    return m?.[2] === b.id ? [{ ...l, text: l.text.replace(TO_SUB, "$1") }] : [];
+  });
+  return yours.length ? [...b.lines, ...yours].sort((x, y) => (x.at ?? 0) - (y.at ?? 0)) : b.lines;
+}
+
 /** Where subagent `b` is: ended, else still at work while its run is (`working`) and has it going (in `tasks` when it went to the background). */
 export function subState(b: SubBlock, working: boolean, tasks: AgentTask[]): "running" | "done" | "failed" | "stopped" {
   if (b.end) return b.end;

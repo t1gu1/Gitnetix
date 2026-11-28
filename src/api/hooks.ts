@@ -10,6 +10,7 @@ import type {
   Blobs,
   BranchTypes,
   BranchView,
+  Choice,
   Commit,
   CommitPrefs,
   DayCommit,
@@ -733,6 +734,16 @@ export const useTicketFields = (t?: Ticket) =>
     queryKey: ["ticketFields", t?.source, t?.conn, t?.id],
     queryFn: () => rpc<TicketFields>("tickets.fields", { source: t!.source, conn: t!.conn, id: t!.id }),
     enabled: !!t?.id && (t.source === "jira" || t.source === "linear"),
+    retry: false,
+    staleTime: 60_000,
+  });
+
+/** The sprints or cycles the ticket can move to, or the issues it can go under; read once `on` (its menu opened). */
+export const useTicketChoices = (t: Ticket, kind: "sprints" | "parents", on: boolean) =>
+  useQuery({
+    queryKey: ["ticketChoices", kind, t.source, t.conn, t.id],
+    queryFn: () => rpc<Choice[]>(`tickets.${kind}`, { source: t.source, conn: t.conn, id: t.id }),
+    enabled: on,
     retry: false,
     staleTime: 60_000,
   });

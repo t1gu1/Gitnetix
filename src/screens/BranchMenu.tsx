@@ -575,8 +575,6 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
         if (v.local) list.push(a.rebaseOntoActive);
       }
     }
-    // A worktree's branch ends by merging or deleting it, not through a PR.
-    if (t.base && !v.worktree) list.push(a.pr);
     if (v.local && hasChangelog && v.role === "release" && v.release) list.push(a.stampChangelog);
     if (v.local && hasChangelog && v.name === ov?.defaultBranch && ov.changelogVersion) list.push(a.latestChangelog);
     if (t.moveTo?.length || t.pickTarget) {
@@ -589,6 +587,8 @@ export function useBranchActions(pid: string, openDialog: (d: BranchDialog, bran
     list.push("sep");
     if (v.ticket) list.push(a.ticket);
     else if (v.role === "branch" && v.local) list.push(a.newTicket);
+    // A worktree's branch ends by merging or deleting it, not through a PR.
+    if (t.base && !v.worktree) list.push(a.pr);
     if (t.showStashes) list.push({ id: "stashes", label: "Show stashes", icon: "stash", hint: v.stashes ? String(v.stashes) : undefined, run: t.showStashes });
     if (v.local && canChangelog) list.push(a.changelog);
     // The only way to tag a branch, a worktree's too: it is tagged where it stands.

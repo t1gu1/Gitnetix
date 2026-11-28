@@ -1019,6 +1019,10 @@ body.dragging-tab * {
   text-align: left;
   cursor: pointer;
 }
+/* A long value doesn't squeeze the chevron. */
+.menu-select > svg {
+  flex: none;
+}
 /* The value, with its mark before it when it has one (a ticket's status ring, its priority bars). */
 .menu-lead {
   display: flex;
@@ -5992,7 +5996,7 @@ button.picker-act {
   font-family: var(--sans);
   color: var(--warn-fg);
 }
-/* A subagent's name opens its work under it. */
+/* A subagent's or command's name opens its view (TaskView). */
 .ag-bg-open {
   display: flex;
   align-items: center;
@@ -6012,12 +6016,9 @@ button.picker-act {
 .ag-bg-open:hover > svg {
   color: var(--fg);
 }
-.ag-bg-task > .ag-sub-work {
-  grid-column: 2 / -1;
-  max-height: 360px;
-  overflow-y: auto;
-  padding: 8px 0 2px;
-  border-top: 1px solid var(--line);
+.ag-bg-open:hover > span {
+  text-decoration: underline;
+  text-underline-offset: 3px;
 }
 /* A subagent in the log (agentLog.ts SubBlock): one row where it started, its work under it when opened. */
 .ag-sub {
@@ -6096,6 +6097,103 @@ button.picker-act {
 .ag-sub-none {
   font-size: 11.5px;
   color: var(--faint);
+}
+.ag-sub-top {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.ag-sub-top > .ag-sub-head {
+  flex: 1;
+}
+.ag-sub-view {
+  width: 24px;
+  height: 24px;
+  margin: 4px 6px -2px 0;
+  color: var(--faint);
+}
+/* A message you sent a subagent through the agent. */
+.ag-sub-you {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 10px;
+  border-left: 2px solid var(--line2);
+  color: var(--fg);
+}
+/* A subagent's or command's own view (TaskView): its state, what went wrong, its work or output, a box to message it. */
+/* Clear of the close button: the head's actions sit flush against it, made for icon buttons. */
+.ag-view-stop {
+  margin-right: 16px;
+}
+.ag-view-sub {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.ag-view-problem {
+  display: flex;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--warn-fg) 45%, transparent);
+  border-radius: var(--r);
+}
+.ag-view-problem > svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--warn-fg);
+}
+.ag-view-problem[data-failed] {
+  border-color: color-mix(in srgb, var(--del-fg) 45%, transparent);
+}
+.ag-view-problem[data-failed] > svg {
+  color: var(--del-fg);
+}
+.ag-view-problem-title {
+  font-size: 13px;
+  font-weight: 600;
+}
+/* Its first lines: a subagent's whole report is in its work below. */
+.ag-view-problem-text {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  font-size: 12.5px;
+  color: var(--muted);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ag-view-out {
+  flex: none;
+  max-height: 420px;
+  margin: 0;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--bg);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.ag-view-reply {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.ag-view-reply > textarea {
+  width: 100%;
+}
+.ag-view-send {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
 }
 /* Where the log records it: a pill, like a finished run's. */
 .ag-limited {
@@ -7746,8 +7844,23 @@ main.detail.tk-detail {
   margin: 0;
   font-size: 12.5px;
 }
-.tk-kvs .menu-select {
+.tk-kvs :is(.menu-select, .input) {
   width: 100%;
+  height: 30px;
+  padding-inline: 8px;
+}
+/* A parent's key keeps its width; its title gives way. */
+.tk-kvs .menu-lead > .mono {
+  flex: none;
+}
+.tk-parent {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.tk-parent > .btn-icon {
+  flex: none;
+  width: 30px;
   height: 30px;
 }
 @container tk-detail (max-width: 999px) {

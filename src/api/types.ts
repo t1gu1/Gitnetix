@@ -691,6 +691,18 @@ export interface AgentTask {
   agents?: [number, number] | null;
 }
 
+/** A command an agent's run has going in the background, or had (`agents.taskOutput`). */
+export interface TaskOutput {
+  command: string;
+  /** Its last 32 KB, from a line start; null once its CLI deleted the file. */
+  output: string | null;
+  /** It printed more than `output` holds. */
+  cut: boolean;
+  /** completed | failed | stopped, once it ended, and what its CLI said then (its exit code in it). */
+  status: string | null;
+  summary: string | null;
+}
+
 /** An action Claude Code asks to run: its tool, its command or file, and what it says it does. */
 export interface AgentAsk {
   id: string;
@@ -910,6 +922,8 @@ export interface Ticket {
   parentKey?: string;
   parentTitle?: string;
   parentUrl?: string;
+  /** The Jira sprint (the active one, else one to come) or Linear cycle it is in. */
+  sprint?: string;
   /** Linear project name and page. */
   projectName?: string;
   projectUrl?: string;
@@ -968,11 +982,23 @@ export interface FieldOption {
   group?: string;
 }
 
-/** What a Jira or Linear ticket's priority, type and labels can be set to; an empty list can't be changed here. */
+/** What a Jira or Linear ticket's priority, type and labels can be set to; an empty list can't be changed here.
+ * `sprint`, `parent`, `estimate`: whether its sprint or cycle, parent and original estimate can change. */
 export interface TicketFields {
   priorities: FieldOption[];
   types: FieldOption[];
   labels: FieldOption[];
+  sprint: boolean;
+  parent: boolean;
+  estimate: boolean;
+}
+
+/** A sprint, cycle or parent issue a ticket can go in or under. `key`: the parent's key; `note`: "Active", or when one to come starts. */
+export interface Choice {
+  id: string;
+  key?: string;
+  name: string;
+  note?: string;
 }
 
 /** A ticket's comment; a Linear thread's first comment has its replies, oldest first. */
