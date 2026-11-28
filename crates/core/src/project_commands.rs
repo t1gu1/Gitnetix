@@ -462,10 +462,12 @@ fn package_scripts(files: &[&str], read: impl Fn(&str) -> Option<String>) -> Vec
                 _ => "--cwd",
             };
             let at = if d.is_empty() { String::new() } else { format!(" {flag} {}", shell_word(d)) };
+            // Bun takes its command from the first word without a leading `-` (`dir` in `bun --cwd dir run x`), so `--cwd` goes after `run`.
+            let run = if pm == "bun" { format!("bun run{at}") } else { format!("{pm}{at} run") };
             let title = v["name"].as_str().filter(|n| !n.is_empty()).map(String::from);
             Some(Scripts {
                 title: title.unwrap_or_else(|| if d.is_empty() { "Root".into() } else { d.clone() }),
-                scripts: scripts.keys().map(|s| (s.clone(), format!("{pm}{at} run {}", shell_word(s)))).collect(),
+                scripts: scripts.keys().map(|s| (s.clone(), format!("{run} {}", shell_word(s)))).collect(),
             })
         })
         .collect()
@@ -507,13 +509,14 @@ mod tests {
             got,
             vec![
                 Scripts { title: "mono".into(), scripts: vec![pair("build", "pnpm run build"), pair("lint:fix", "pnpm run lint:fix")] },
-                Scripts { title: "apps/docs".into(), scripts: vec![pair("dev", "bun --cwd apps/docs run dev")] },
+                Scripts { title: "apps/docs".into(), scripts: vec![pair("dev", "bun run --cwd apps/docs dev")] },
                 Scripts { title: "web".into(), scripts: vec![pair("dev", "pnpm --dir apps/web run dev")] },
                 Scripts { title: "my app".into(), scripts: vec![pair("start", "npm --prefix 'my app' run start")] },
                 Scripts { title: "tools".into(), scripts: vec![pair("it's", r"yarn --cwd tools run 'it'\''s'")] },
             ]
         );
         assert_eq!(package_scripts(&["package.json"], |_| Some(r#"{ "scripts": { "t": "x" } }"#.into()))[0].scripts[0].1, "npm run t");
+        assert_eq!(package_scripts(&["package.json", "bun.lock"], |_| Some(r#"{ "scripts": { "t": "x" } }"#.into()))[0].scripts[0].1, "bun run t");
     }
 
     #[test]
